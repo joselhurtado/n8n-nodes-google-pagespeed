@@ -1,6 +1,6 @@
 A comprehensive n8n community node for **Google PageSpeed Insights API**, providing detailed website performance, accessibility, SEO, and best practices analysis with professional-grade features.
 
-![Google PageSpeed Insights Logo]##PageSpeed Insights (https://www.gstatic.com/pagespeed/insights/ui/logo/favicon_48.png)
+![Google PageSpeed Insights Logo](https://www.gstatic.com/pagespeed/insights/ui/logo/favicon_48.png) ##PageSpeed Insights 
 
 ## 🚀 Features
 
