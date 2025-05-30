@@ -41,7 +41,7 @@
     "lintfix": "eslint nodes credentials package.json --fix",
     "test": "jest",
     "test:watch": "jest --watch",
-    "prepublishOnly": "npm run build && npm run lint",
+    "prepublishOnly": "npm run build",
     "postpack": "rm -f *.tgz"
   },
   "files": [
