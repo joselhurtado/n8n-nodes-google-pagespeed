@@ -1,3 +1,5 @@
+// GooglePageSpeed.node.ts - Improved modular architecture
+
 import {
 	IExecuteFunctions,
 	INodeExecutionData,
@@ -5,34 +7,29 @@ import {
 	INodeTypeDescription,
 	ICredentialDataDecryptedObject,
 	NodeOperationError,
-	NodeConnectionType,
-	// NodeGroup, // FIX: REMOVE OR COMMENT OUT THIS LINE. It's not exported in your n8n-workflow version.
 } from 'n8n-workflow';
 
-// Import interfaces (FIX: Use relative path from GooglePageSpeed.node.ts to interfaces.ts)
-import { UrlFilters } from 'src/interfaces';
-
-// Import operation functions (FIX: Use relative paths from GooglePageSpeed.node.ts to operations/)
-import { analyzeSingleUrl } from './operations/analyzeSingleUrl';
-import { analyzeMultipleUrls } from './operations/analyzeMultipleUrls';
-import { analyzeSitemap } from './operations/analyzeSitemap';
-import { compareUrls } from './operations/compareUrls';
+import { SUPPORTED_LOCALES, STRATEGY_OPTIONS, CATEGORY_OPTIONS, OUTPUT_FORMAT_OPTIONS } from './config';
+import { validateApiKey } from './utils/apiUtils';
+import { executeAnalyzeSingle } from './operations/analyzeSingleUrl';
+import { executeAnalyzeMultiple } from './operations/analyzeMultipleUrls';
+import { executeAnalyzeSitemap } from './operations/analyzeSitemap';
+import { executeCompareUrls } from './operations/compareUrls';
 
 export class GooglePageSpeed implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Google PageSpeed Insights Enhanced',
-		name: 'googlePageSpeedEnhanced',
+		displayName: 'Google PageSpeed Insights',
+		name: 'googlePageSpeed',
 		icon: 'file:google-pagespeed.svg',
-		group: ['analyze'], // FIX: Revert to string literal for NodeGroup compatibility
+		group: ['transform'], // Fixed: Changed from 'analyze' to valid group
 		version: 2,
-		subtitle: '={{$parameter["operation"] + ": " + $parameter["url"]}}',
-		description:
-			'Advanced website performance, accessibility, and SEO analysis using Google PageSpeed Insights with enhanced categorization',
+		subtitle: '={{$parameter["operation"] + ": " + ($parameter["url"] || $parameter["urls"] || $parameter["sitemapUrl"] || "URLs")}}',
+		description: 'Analyze website performance, accessibility, and SEO using Google PageSpeed Insights API',
 		defaults: {
-			name: 'PageSpeed Enhanced',
+			name: 'Google PageSpeed',
 		},
-		inputs: [NodeConnectionType.Main], // These should be fine, as NodeConnectionType is usually an enum value
-		outputs: [NodeConnectionType.Main], // These should be fine
+		inputs: ['main'], // Fixed: Use string instead of NodeConnectionType
+		outputs: ['main'], // Fixed: Use string instead of NodeConnectionType
 		credentials: [
 			{
 				name: 'googlePageSpeedApi',
@@ -49,46 +46,48 @@ export class GooglePageSpeed implements INodeType {
 					{
 						name: 'Analyze Single URL',
 						value: 'analyzeSingle',
-						description: 'Analyze a single website URL with enhanced insights',
-						action: 'Analyze a single website URL with enhanced insights',
+						description: 'Analyze a single website URL',
+						action: 'Analyze a single website URL',
 					},
 					{
 						name: 'Analyze Multiple URLs',
 						value: 'analyzeMultiple',
-						description: 'Analyze multiple website URLs in batch with detailed comparison',
-						action: 'Analyze multiple website URLs in batch with detailed comparison',
+						description: 'Analyze multiple website URLs in batch',
+						action: 'Analyze multiple website URLs in batch',
 					},
 					{
 						name: 'Analyze Sitemap',
 						value: 'analyzeSitemap',
-						description:
-							'Automatically analyze all URLs from a website sitemap with site-wide insights',
-						action: 'Analyze all URLs from a website sitemap with site-wide insights',
+						description: 'Automatically analyze all URLs from a website sitemap',
+						action: 'Analyze all URLs from a website sitemap',
 					},
 					{
 						name: 'Compare URLs',
 						value: 'compareUrls',
-						description: 'Compare performance metrics between multiple URLs',
-						action: 'Compare performance metrics between multiple URLs',
+						description: 'Compare performance between different URLs or time periods',
+						action: 'Compare performance between URLs',
 					},
 				],
 				default: 'analyzeSingle',
 			},
+			
+			// Single URL Analysis
 			{
 				displayName: 'URL',
 				name: 'url',
 				type: 'string',
 				required: true,
-				default: '={{$json["URL To be Analized"] || $json["url"] || $json["website"] || ""}}',
-				placeholder: 'example.com or https://example.com or {{$json["URL To be Analized"]}}',
-				description:
-					'The URL to analyze. Supports dynamic input from previous nodes. Protocol (https://) will be added automatically if missing.',
+				default: '',
+				placeholder: 'example.com or https://example.com',
+				description: 'The URL of the website to analyze. Protocol (https://) will be added automatically if missing.',
 				displayOptions: {
 					show: {
 						operation: ['analyzeSingle'],
 					},
 				},
 			},
+			
+			// Multiple URLs Analysis
 			{
 				displayName: 'URLs',
 				name: 'urls',
@@ -97,24 +96,25 @@ export class GooglePageSpeed implements INodeType {
 					multipleValues: true,
 				},
 				required: true,
-				default: ['={{$json["URL To be Analized"] || $json["url"] || $json["website"] || ""}}'],
-				placeholder: 'https://example.com or {{$json["urls"]}}',
-				description: 'Multiple URLs to analyze. Supports dynamic input arrays from previous nodes.',
+				default: [],
+				placeholder: 'https://example.com',
+				description: 'Multiple URLs to analyze. Each URL will be processed separately.',
 				displayOptions: {
 					show: {
-						operation: ['analyzeMultiple', 'compareUrls'],
+						operation: ['analyzeMultiple'],
 					},
 				},
 			},
+			
+			// Sitemap Analysis
 			{
 				displayName: 'Sitemap URL',
 				name: 'sitemapUrl',
 				type: 'string',
 				required: true,
-				default: '={{$json["sitemap_url"] || $json["sitemapUrl"] || ""}}',
-				placeholder: 'https://example.com/sitemap.xml or {{$json["sitemap_url"]}}',
-				description:
-					'URL of the XML sitemap to analyze. Supports dynamic input from previous nodes.',
+				default: '',
+				placeholder: 'https://example.com/sitemap.xml',
+				description: 'URL of the XML sitemap to analyze. All URLs in the sitemap will be extracted and analyzed.',
 				displayOptions: {
 					show: {
 						operation: ['analyzeSitemap'],
@@ -127,7 +127,7 @@ export class GooglePageSpeed implements INodeType {
 				type: 'collection',
 				placeholder: 'Add Filter',
 				default: {},
-				description: 'Advanced filters to control which URLs are analyzed from sitemap',
+				description: 'Optional filters to limit which URLs from the sitemap are analyzed',
 				displayOptions: {
 					show: {
 						operation: ['analyzeSitemap'],
@@ -139,18 +139,16 @@ export class GooglePageSpeed implements INodeType {
 						name: 'includePattern',
 						type: 'string',
 						default: '',
-						placeholder: '/blog/, /products/, /services/',
-						description:
-							'Only analyze URLs containing these patterns (comma-separated). Supports regex patterns.',
+						placeholder: '/blog/, /products/',
+						description: 'Only analyze URLs containing these patterns (comma-separated)',
 					},
 					{
 						displayName: 'Exclude Pattern',
 						name: 'excludePattern',
 						type: 'string',
 						default: '',
-						placeholder: '/admin/, /api/, /.xml, /.pdf',
-						description:
-							'Skip URLs containing these patterns (comma-separated). Supports regex patterns.',
+						placeholder: '/admin/, /api/',
+						description: 'Skip URLs containing these patterns (comma-separated)',
 					},
 					{
 						displayName: 'Max URLs',
@@ -166,126 +164,121 @@ export class GooglePageSpeed implements INodeType {
 						options: [
 							{ name: 'All URLs', value: 'all' },
 							{ name: 'Pages Only', value: 'pages' },
-							{ name: 'Blog Posts', value: 'posts' },
-							{ name: 'Product Pages', value: 'products' },
-							{ name: 'Landing Pages', value: 'landing' },
+							{ name: 'Posts Only', value: 'posts' },
 						],
 						default: 'all',
 						description: 'Type of URLs to analyze based on URL patterns',
 					},
-					{
-						displayName: 'Priority Pages Only',
-						name: 'priorityOnly',
-						type: 'boolean',
-						default: false,
-						description: 'Only analyze high-priority pages (homepage, main categories, etc.)',
-					},
 				],
 			},
+			
+			// Compare URLs Operation
 			{
-				displayName: 'Analysis Strategy',
+				displayName: 'Comparison Type',
+				name: 'compareOperation',
+				type: 'options',
+				options: [
+					{
+						name: 'Compare Two URLs',
+						value: 'compareTwo',
+						description: 'Compare performance between two different URLs',
+					},
+					{
+						name: 'Before/After Analysis',
+						value: 'beforeAfter',
+						description: 'Compare current analysis with previous baseline',
+					},
+					{
+						name: 'Batch Comparison',
+						value: 'batch',
+						description: 'Compare multiple URLs from input data',
+					},
+				],
+				default: 'compareTwo',
+				displayOptions: {
+					show: {
+						operation: ['compareUrls'],
+					},
+				},
+			},
+			{
+				displayName: 'First URL',
+				name: 'url1',
+				type: 'string',
+				required: true,
+				default: '',
+				placeholder: 'https://example.com',
+				description: 'First URL to compare',
+				displayOptions: {
+					show: {
+						operation: ['compareUrls'],
+						compareOperation: ['compareTwo'],
+					},
+				},
+			},
+			{
+				displayName: 'Second URL',
+				name: 'url2',
+				type: 'string',
+				required: true,
+				default: '',
+				placeholder: 'https://example.com/page2',
+				description: 'Second URL to compare',
+				displayOptions: {
+					show: {
+						operation: ['compareUrls'],
+						compareOperation: ['compareTwo'],
+					},
+				},
+			},
+			{
+				displayName: 'URL',
+				name: 'url',
+				type: 'string',
+				required: true,
+				default: '',
+				placeholder: 'https://example.com',
+				description: 'URL to analyze and compare with baseline',
+				displayOptions: {
+					show: {
+						operation: ['compareUrls'],
+						compareOperation: ['beforeAfter'],
+					},
+				},
+			},
+			{
+				displayName: 'Baseline Data',
+				name: 'baselineData',
+				type: 'json',
+				default: '',
+				description: 'Previous analysis data to use as baseline (optional - will use input data if not provided)',
+				displayOptions: {
+					show: {
+						operation: ['compareUrls'],
+						compareOperation: ['beforeAfter'],
+					},
+				},
+			},
+			
+			// Common Settings
+			{
+				displayName: 'Strategy',
 				name: 'strategy',
 				type: 'options',
-				options: [
-					{
-						name: 'Mobile',
-						value: 'mobile',
-						description: 'Analyze mobile version (recommended for Core Web Vitals)',
-					},
-					{
-						name: 'Desktop',
-						value: 'desktop',
-						description: 'Analyze desktop version',
-					},
-					{
-						name: 'Both',
-						value: 'both',
-						description: 'Analyze both mobile and desktop (uses 2x API quota)',
-					},
-					{
-						name: 'Auto',
-						value: 'auto',
-						description: 'Automatically choose based on page type and traffic patterns',
-					},
-				],
+				options: [...STRATEGY_OPTIONS], // Fixed: Spread to make mutable
 				default: 'mobile',
-				description: 'The analysis strategy to use',
+				description: 'The analysis strategy to use. Mobile-first is recommended for modern web development.',
 			},
 			{
-				displayName: 'Analysis Categories',
+				displayName: 'Categories',
 				name: 'categories',
 				type: 'multiOptions',
-				options: [
-					{
-						name: 'Performance',
-						value: 'performance',
-						description: 'Core Web Vitals and performance metrics',
-					},
-					{
-						name: 'Accessibility',
-						value: 'accessibility',
-						description: 'WCAG compliance and accessibility analysis',
-					},
-					{
-						name: 'Best Practices',
-						value: 'best-practices',
-						description: 'Web development and security best practices',
-					},
-					{
-						name: 'SEO',
-						value: 'seo',
-						description: 'Search engine optimization analysis',
-					},
-					{
-						name: 'PWA',
-						value: 'pwa',
-						description: 'Progressive Web App compliance',
-					},
-				],
+				options: [...CATEGORY_OPTIONS], // Fixed: Spread to make mutable
 				default: ['performance', 'accessibility', 'best-practices', 'seo'],
-				description: 'Categories to analyze (PWA requires specific setup)',
+				description: 'Categories to analyze. All categories are recommended for comprehensive analysis.',
 			},
 			{
-				displayName: 'Output Format',
-				name: 'outputFormat',
-				type: 'options',
-				options: [
-					{
-						name: 'Enhanced Complete',
-						value: 'enhancedComplete',
-						description: 'Full analysis with categorized insights and recommendations',
-					},
-					{
-						name: 'Business Summary',
-						value: 'businessSummary',
-						description: 'Executive summary with key metrics and action items',
-					},
-					{
-						name: 'Developer Details',
-						value: 'developerDetails',
-						description: 'Technical details for developers with specific optimizations',
-					},
-					{
-						name: 'Core Web Vitals',
-						value: 'coreWebVitals',
-						description: 'Focus on Core Web Vitals and user experience metrics',
-					},
-					{
-						name: 'Scores Only',
-						value: 'scoresOnly',
-						description: 'Just the category scores for tracking',
-					},
-					{
-						name: 'Comparison Ready',
-						value: 'comparisonReady',
-						description: 'Formatted for easy comparison between URLs',
-					},
-				],
-				default: 'enhancedComplete',
-				description: 'How detailed the output should be',
-			},
-			{
-				displayName: 'Advanced Options',
+				displayName: 'Additional Options',
 				name: 'additionalFields',
 				type: 'collection',
 				placeholder: 'Add Option',
@@ -295,68 +288,53 @@ export class GooglePageSpeed implements INodeType {
 						displayName: 'Locale',
 						name: 'locale',
 						type: 'options',
-						options: [
-							{ name: 'English', value: 'en' },
-							{ name: 'Spanish', value: 'es' },
-							{ name: 'French', value: 'fr' },
-							{ name: 'German', value: 'de' },
-							{ name: 'Italian', value: 'it' },
-							{ name: 'Portuguese', value: 'pt' },
-							{ name: 'Japanese', value: 'ja' },
-							{ name: 'Korean', value: 'ko' },
-							{ name: 'Chinese (Simplified)', value: 'zh-CN' },
-							{ name: 'Chinese (Traditional)', value: 'zh-TW' },
-						],
+						options: [...SUPPORTED_LOCALES], // Fixed: Spread to make mutable
 						default: 'en',
-						description: 'Language for localized results and recommendations',
+						description: 'The locale used to localize formatted results',
 					},
 					{
 						displayName: 'Include Screenshot',
 						name: 'screenshot',
 						type: 'boolean',
 						default: false,
-						description: 'Include page screenshot in results (increases response size)',
+						description: 'Whether to include a screenshot of the analyzed page in results',
+					},
+					{
+						displayName: 'Output Format',
+						name: 'outputFormat',
+						type: 'options',
+						options: [...OUTPUT_FORMAT_OPTIONS], // Fixed: Spread to make mutable
+						default: 'complete',
+						description: 'How much data to return in the response',
 					},
 					{
 						displayName: 'Skip Content Validation',
 						name: 'skipContentValidation',
 						type: 'boolean',
 						default: false,
-						description:
-							'Skip HTML content type validation (may result in errors for non-HTML endpoints)',
+						description: 'Skip checking if URLs return HTML content (may result in errors for XML/API endpoints)',
 					},
 					{
-						displayName: 'Include Opportunities',
-						name: 'includeOpportunities',
-						type: 'boolean',
-						default: true,
-						description: 'Include detailed optimization opportunities and savings estimates',
-					},
-					{
-						displayName: 'Batch Size',
-						name: 'batchSize',
+						displayName: 'Retry Attempts',
+						name: 'retryAttempts',
 						type: 'number',
-						default: 3,
+						default: 2,
+						description: 'Number of retry attempts for failed requests',
 						typeOptions: {
-							minValue: 1,
-							maxValue: 10,
+							minValue: 0,
+							maxValue: 5,
 						},
-						description:
-							'Number of concurrent API requests (higher = faster but may hit rate limits)',
 					},
 					{
-						displayName: 'Retry Failed URLs',
-						name: 'retryFailed',
-						type: 'boolean',
-						default: true,
-						description: 'Automatically retry failed URL analyses once',
-					},
-					{
-						displayName: 'Include Raw Data',
-						name: 'includeRawData',
-						type: 'boolean',
-						default: false,
-						description: 'Include raw PageSpeed Insights data for custom processing',
+						displayName: 'Custom Timeout (seconds)',
+						name: 'customTimeout',
+						type: 'number',
+						default: 60,
+						description: 'Custom timeout for API requests in seconds',
+						typeOptions: {
+							minValue: 10,
+							maxValue: 300,
+						},
 					},
 				],
 			},
@@ -365,42 +343,69 @@ export class GooglePageSpeed implements INodeType {
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const operation = this.getNodeParameter('operation', 0) as string;
-		const credentials = (await this.getCredentials(
-			'googlePageSpeedApi',
-		)) as ICredentialDataDecryptedObject;
+		const credentials = (await this.getCredentials('googlePageSpeedApi')) as ICredentialDataDecryptedObject;
 
 		if (!credentials.apiKey) {
-			throw new NodeOperationError(this.getNode(), 'No API key found in credentials');
+			throw new NodeOperationError(this.getNode(), 'No API key found in credentials. Please configure your Google PageSpeed API credentials.');
 		}
 
-		const results: INodeExecutionData[] = [];
+		const apiKey = credentials.apiKey as string;
+
+		// Validate API key (optional but recommended)
+		const isValidKey = await validateApiKey(this, apiKey);
+		if (!isValidKey) {
+			console.warn('API key validation failed, but continuing with execution...');
+		}
+
+		let results: INodeExecutionData[] = [];
 
 		try {
 			switch (operation) {
 				case 'analyzeSingle':
-					const singleResult = await analyzeSingleUrl(this, credentials.apiKey as string, 0);
-					results.push(...singleResult);
+					results = await executeAnalyzeSingle(this, apiKey);
 					break;
+					
 				case 'analyzeMultiple':
-					const multipleResult = await analyzeMultipleUrls(this, credentials.apiKey as string);
-					results.push(...multipleResult);
+					results = await executeAnalyzeMultiple(this, apiKey);
 					break;
+					
 				case 'analyzeSitemap':
-					const sitemapResult = await analyzeSitemap(this, credentials.apiKey as string);
-					results.push(...sitemapResult);
+					results = await executeAnalyzeSitemap(this, apiKey);
 					break;
+					
 				case 'compareUrls':
-					const compareResult = await compareUrls(this, credentials.apiKey as string);
-					results.push(...compareResult);
+					results = await executeCompareUrls(this, apiKey);
 					break;
+					
 				default:
 					throw new NodeOperationError(this.getNode(), `Unknown operation: ${operation}`);
 			}
+
+			// Add execution metadata to all results
+			results.forEach(result => {
+				if (result.json && typeof result.json === 'object') {
+					result.json.executionMetadata = {
+						nodeVersion: 2,
+						executionTime: new Date().toISOString(),
+						operation,
+						totalResults: results.length,
+					};
+				}
+			});
+
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+			
+			// Enhanced error logging
+			console.error('PageSpeed Insights execution failed:', {
+				operation,
+				error: errorMessage,
+				timestamp: new Date().toISOString(),
+			});
+
 			throw new NodeOperationError(
-				this.getNode(),
-				`PageSpeed Insights Enhanced analysis failed: ${errorMessage}`,
+				this.getNode(), 
+				`PageSpeed Insights analysis failed: ${errorMessage}. Please check your API key, URL format, and network connection.`
 			);
 		}
 

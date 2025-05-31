@@ -1,140 +1,221 @@
+// operations/analyzeSingleUrl.ts - Single URL analysis operation
+
 import { IExecuteFunctions, INodeExecutionData, NodeOperationError } from 'n8n-workflow';
-import { extractUrlFromInput, normalizeUrl, validateUrlContent } from 'src/nodes/GooglePageSpeed/utils/urlUtils';
-import { makePageSpeedRequest, delay } from 'src/nodes/GooglePageSpeed/utils/apiUtils';
-import { formatEnhancedResponse } from 'src/nodes/GooglePageSpeed/helpers/responseFormatter';
-import { EnhancedAnalysisResult, OperationResult } from 'src/nodes/GooglePageSpeed/interfaces';
+import { AnalysisResult, ApiRequestConfig, AdditionalFields } from '../interfaces';
+import { normalizeUrl, extractUrlFromInput } from '../utils/urlUtils';
+import { makePageSpeedRequest } from '../utils/apiUtils';
+import { formatResponse } from '../helpers/responseFormatter';
 
 /**
- * Handles the 'analyzeSingle' operation for a single URL.
- * @param context The N8N execution context.
- * @param apiKey Google API key.
- * @param itemIndex The index of the current item.
- * @returns A promise that resolves to an array of INodeExecutionData.
- * @throws NodeOperationError if URL is missing or normalization fails.
+ * Execute single URL analysis operation
+ * @param context - n8n execution context
+ * @param apiKey - Google API key
+ * @returns Array of analysis results
  */
-export async function analyzeSingleUrl(
+export async function executeAnalyzeSingle(
 	context: IExecuteFunctions,
-	apiKey: string,
-	itemIndex: number,
-): OperationResult {
-	const rawUrl = extractUrlFromInput(context, itemIndex, 'url');
-	
-	if (!rawUrl) {
-		throw new NodeOperationError(context.getNode(), 'No URL provided. Please provide a URL in the "url" parameter or pass it via input data with field names like "URL To be Analized", "url", "website", etc.');
-	}
-
-	console.log(`🔧 Processing URL: "${rawUrl}"`);
-
-	let finalUrl: string;
-	try {
-		finalUrl = normalizeUrl(rawUrl, 'single URL analysis');
-		console.log(`✅ URL normalized: "${rawUrl}" → "${finalUrl}"`);
-	} catch (error) {
-		const errorMsg = error instanceof Error ? error.message : 'Invalid URL format';
-		throw new NodeOperationError(context.getNode(), `URL normalization error: ${errorMsg}`);
-	}
-
-	const strategy = context.getNodeParameter('strategy', itemIndex) as string;
-	const categories = context.getNodeParameter('categories', itemIndex) as string[];
-	const outputFormat = context.getNodeParameter('outputFormat', itemIndex) as string;
-	const additionalFields = context.getNodeParameter('additionalFields', itemIndex);
-
-	const results: INodeExecutionData[] = [];
+	apiKey: string
+): Promise<INodeExecutionData[]> {
+	const strategy = context.getNodeParameter('strategy', 0) as string;
+	const categories = context.getNodeParameter('categories', 0) as string[];
+	const additionalFields = context.getNodeParameter('additionalFields', 0) as AdditionalFields;
 
 	try {
+		// Get URL from parameter or input data
+		const rawUrl = extractUrlFromInput(context, 0);
+		
+		if (!rawUrl) {
+			throw new NodeOperationError(
+				context.getNode(), 
+				'No URL provided. Please enter a URL like "example.com" or "https://example.com", or ensure input data contains a URL field.'
+			);
+		}
+
+		console.log(`🔧 Processing single URL: "${rawUrl}"`);
+
+		// Normalize the URL
+		let normalizedUrl: string;
+		try {
+			normalizedUrl = normalizeUrl(rawUrl);
+			console.log(`✅ URL normalized: "${rawUrl}" → "${normalizedUrl}"`);
+		} catch (error) {
+			const errorMsg = error instanceof Error ? error.message : 'Invalid URL format';
+			throw new NodeOperationError(context.getNode(), `URL error: ${errorMsg}`);
+		}
+
+		// Handle different strategies
+		const results: INodeExecutionData[] = [];
+
 		if (strategy === 'both') {
-			const [desktopResult, mobileResult] = await Promise.all([
-				makePageSpeedRequest(context, apiKey, finalUrl, 'desktop', categories, additionalFields),
-				makePageSpeedRequest(context, apiKey, finalUrl, 'mobile', categories, additionalFields),
+			// Analyze both desktop and mobile
+			console.log('📱💻 Analyzing both mobile and desktop...');
+			
+			const [mobileResult, desktopResult] = await Promise.all([
+				analyzeUrlWithStrategy(context, apiKey, normalizedUrl, 'mobile', categories, additionalFields),
+				analyzeUrlWithStrategy(context, apiKey, normalizedUrl, 'desktop', categories, additionalFields)
 			]);
 
-			results.push({
-				json: {
-					url: finalUrl,
-					originalUrl: rawUrl,
-					strategy: 'both',
-					desktop: formatEnhancedResponse(desktopResult, outputFormat, additionalFields?.includeOpportunities as boolean | undefined),
-					mobile: formatEnhancedResponse(mobileResult, outputFormat, additionalFields?.includeOpportunities as boolean | undefined),
-					analysisTime: new Date().toISOString(),
-					metadata: {
-						strategy: 'both',
-						categories,
-						outputFormat,
-					},
-				} as EnhancedAnalysisResult,
-			});
-		} else {
-			const actualStrategy = strategy === 'auto' ? 'mobile' : strategy;
-			const result = await makePageSpeedRequest(context, apiKey, finalUrl, actualStrategy, categories, additionalFields);
+			// Create combined result
+			const combinedResult: AnalysisResult = {
+				url: normalizedUrl,
+				originalUrl: rawUrl,
+				strategy: 'both',
+				analysisTime: new Date().toISOString(),
+				mobile: mobileResult,
+				desktop: desktopResult,
+			};
 
-			const formattedResult = formatEnhancedResponse(result, outputFormat, additionalFields?.includeOpportunities as boolean | undefined);
-			
-			if (additionalFields?.includeRawData) {
-				formattedResult.rawData = result;
+			// Add overall summary if both analyses succeeded
+			if (!mobileResult.error && !desktopResult.error && mobileResult.scores && desktopResult.scores) {
+				combinedResult.summary = {
+					averageScores: {
+						performance: Math.round((mobileResult.scores.performance + desktopResult.scores.performance) / 2),
+						accessibility: Math.round((mobileResult.scores.accessibility + desktopResult.scores.accessibility) / 2),
+						bestPractices: Math.round((mobileResult.scores.bestPractices + desktopResult.scores.bestPractices) / 2),
+						seo: Math.round((mobileResult.scores.seo + desktopResult.scores.seo) / 2),
+					},
+					mobileBetter: mobileResult.scores.performance > desktopResult.scores.performance,
+					significantDifferences: identifySignificantDifferences(mobileResult.scores, desktopResult.scores),
+				};
 			}
 
-			results.push({
-				json: {
-					url: finalUrl,
-					originalUrl: rawUrl,
-					strategy: actualStrategy,
-					...formattedResult,
-					analysisTime: new Date().toISOString(),
-					metadata: {
-						strategy: actualStrategy,
-						categories,
-						outputFormat,
-					},
-				} as EnhancedAnalysisResult,
-			});
+			results.push({ json: combinedResult });
+
+		} else {
+			// Single strategy analysis
+			console.log(`📊 Analyzing with ${strategy} strategy...`);
+			
+			const result = await analyzeUrlWithStrategy(
+				context, 
+				apiKey, 
+				normalizedUrl, 
+				strategy, 
+				categories, 
+				additionalFields
+			);
+
+			results.push({ json: result });
 		}
+
+		console.log(`✅ Single URL analysis completed: ${results.length} result(s)`);
+		return results;
+
 	} catch (error) {
-		if (additionalFields?.retryFailed && !results.some(r => r.json.errorType === 'RETRY_ATTEMPTED_FINAL_FAIL')) {
-			console.log(`🔄 Retrying failed analysis for: ${finalUrl}`);
-			await delay(2000);
-			
-			try {
-				const result = await makePageSpeedRequest(context, apiKey, finalUrl, strategy === 'auto' ? 'mobile' : strategy, categories, additionalFields);
-				const formattedResult = formatEnhancedResponse(result, outputFormat, additionalFields?.includeOpportunities as boolean | undefined);
-				
-				results.push({
-					json: {
-						url: finalUrl,
-						originalUrl: rawUrl,
-						strategy: strategy === 'auto' ? 'mobile' : strategy,
-						...formattedResult,
-						analysisTime: new Date().toISOString(),
-						retried: true,
-						metadata: {
-							strategy: strategy === 'auto' ? 'mobile' : strategy,
-							categories,
-							outputFormat,
-						},
-					} as EnhancedAnalysisResult,
-				});
-			} catch (retryError) {
-				results.push({
-					json: {
-						url: finalUrl,
-						originalUrl: rawUrl,
-						error: `Analysis failed after retry: ${retryError instanceof Error ? retryError.message : 'Unknown error'}`,
-						errorType: 'RETRY_ATTEMPTED_FINAL_FAIL',
-						analysisTime: new Date().toISOString(),
-					} as EnhancedAnalysisResult,
-				});
-			}
-		} else {
-			results.push({
-				json: {
-					url: finalUrl,
-					originalUrl: rawUrl,
-					error: error instanceof Error ? error.message : 'Unknown error',
-					errorType: 'ANALYSIS_FAILED',
-					analysisTime: new Date().toISOString(),
-				} as EnhancedAnalysisResult,
+		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+		console.error('❌ Single URL analysis failed:', errorMessage);
+		throw new NodeOperationError(context.getNode(), `Single URL analysis failed: ${errorMessage}`);
+	}
+}
+
+/**
+ * Analyze URL with specific strategy
+ * @param context - n8n execution context
+ * @param apiKey - Google API key
+ * @param url - Normalized URL to analyze
+ * @param strategy - Analysis strategy (mobile/desktop)
+ * @param categories - Categories to analyze
+ * @param additionalFields - Additional options
+ * @returns Analysis result
+ */
+async function analyzeUrlWithStrategy(
+	context: IExecuteFunctions,
+	apiKey: string,
+	url: string,
+	strategy: string,
+	categories: string[],
+	additionalFields: AdditionalFields
+): Promise<AnalysisResult> {
+	console.log(`🔍 Starting ${strategy} analysis for: ${url}`);
+
+	// Build API request configuration
+	const config: ApiRequestConfig = {
+		url,
+		strategy,
+		categories,
+		locale: additionalFields.locale,
+		screenshot: additionalFields.screenshot,
+		timeout: additionalFields.customTimeout,
+		retryAttempts: additionalFields.retryAttempts,
+	};
+
+	try {
+		// Make API request
+		const startTime = Date.now();
+		const apiResponse = await makePageSpeedRequest(context, apiKey, config, additionalFields);
+		const duration = Date.now() - startTime;
+
+		console.log(`⏱️ ${strategy} analysis completed in ${duration}ms`);
+
+		// Format response
+		const result = formatResponse(
+			apiResponse, 
+			additionalFields.outputFormat || 'complete',
+			strategy,
+			url
+		);
+
+		// Add performance metrics about the analysis itself
+		result.analysisMetadata = {
+			strategy,
+			duration,
+			categories: categories.length,
+			retryAttempts: additionalFields.retryAttempts || 0,
+			outputFormat: additionalFields.outputFormat || 'complete',
+		};
+
+		// Log analysis results
+		if (result.error) {
+			console.warn(`⚠️ ${strategy} analysis failed:`, result.error);
+		} else if (result.scores) {
+			console.log(`📊 ${strategy} scores - Performance: ${result.scores.performance}, Accessibility: ${result.scores.accessibility}, Best Practices: ${result.scores.bestPractices}, SEO: ${result.scores.seo}`);
+		}
+
+		return result;
+
+	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+		console.error(`❌ ${strategy} analysis failed:`, errorMessage);
+
+		// Return error result instead of throwing
+		return {
+			url,
+			strategy,
+			error: errorMessage,
+			errorType: 'ANALYSIS_FAILED',
+			analysisTime: new Date().toISOString(),
+			skipped: false,
+		};
+	}
+}
+
+/**
+ * Identify significant differences between mobile and desktop scores
+ * @param mobileScores - Mobile analysis scores
+ * @param desktopScores - Desktop analysis scores
+ * @returns Array of significant differences
+ */
+function identifySignificantDifferences(
+	mobileScores: any, 
+	desktopScores: any
+): Array<{ category: string; mobileBetter: boolean; difference: number }> {
+	const differences: Array<{ category: string; mobileBetter: boolean; difference: number }> = [];
+	const threshold = 10; // Consider 10+ point differences significant
+
+	const categories = ['performance', 'accessibility', 'bestPractices', 'seo'];
+
+	categories.forEach(category => {
+		const mobileScore = mobileScores[category] || 0;
+		const desktopScore = desktopScores[category] || 0;
+		const difference = Math.abs(mobileScore - desktopScore);
+
+		if (difference >= threshold) {
+			differences.push({
+				category,
+				mobileBetter: mobileScore > desktopScore,
+				difference,
 			});
 		}
-	}
+	});
 
-	return results;
+	return differences;
 }
