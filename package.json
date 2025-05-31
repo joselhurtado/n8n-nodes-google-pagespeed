@@ -73,5 +73,8 @@
   },
   "peerDependencies": {
     "n8n-workflow": "*"
+  },
+  "dependencies": {
+    "n8n-nodes-google-pagespeed": "^1.5.8"
   }
 }
