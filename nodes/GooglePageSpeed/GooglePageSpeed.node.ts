@@ -268,6 +268,13 @@ export class GooglePageSpeed implements INodeType {
 						default: 'complete',
 						description: 'How much data to return',
 					},
+					{
+						displayName: 'Skip Content Validation',
+						name: 'skipContentValidation',
+						type: 'boolean',
+						default: false,
+						description: 'Skip checking if URLs return HTML content (may result in errors for XML/API endpoints)',
+					},
 				],
 			},
 		],
@@ -303,17 +310,232 @@ export class GooglePageSpeed implements INodeType {
 	}
 }
 
+// NEW: Function to normalize and clean URLs provided by users
+function normalizeUrl(inputUrl: string): string {
+	if (!inputUrl || typeof inputUrl !== 'string') {
+		throw new Error('URL is required and must be a string');
+	}
+
+	// Remove leading/trailing whitespace
+	let url = inputUrl.trim();
+	
+	if (url.length === 0) {
+		throw new Error('URL cannot be empty');
+	}
+
+	// Convert to lowercase for protocol checking (but preserve original case for domain)
+	const urlLower = url.toLowerCase();
+	
+	// Add protocol if missing
+	if (!urlLower.startsWith('http://') && !urlLower.startsWith('https://')) {
+		// Default to https for security
+		url = 'https://' + url;
+	}
+	
+	// Handle protocol correction (prefer https over http)
+	if (urlLower.startsWith('http://')) {
+		url = url.replace(/^http:\/\//i, 'https://');
+	}
+	
+	try {
+		// Parse and reconstruct URL to ensure it's valid
+		const urlObj = new URL(url);
+		
+		// Remove trailing slash from pathname if it's just "/"
+		if (urlObj.pathname === '/') {
+			urlObj.pathname = '';
+		}
+		
+		// Remove common tracking parameters that might interfere
+		const paramsToRemove = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'];
+		paramsToRemove.forEach(param => {
+			urlObj.searchParams.delete(param);
+		});
+		
+		// Reconstruct the URL
+		let normalizedUrl = urlObj.toString();
+		
+		// Remove trailing slash if present
+		if (normalizedUrl.endsWith('/') && normalizedUrl !== urlObj.origin + '/') {
+			normalizedUrl = normalizedUrl.slice(0, -1);
+		}
+		
+		return normalizedUrl;
+		
+	} catch (error) {
+		throw new Error(`Invalid URL format: ${inputUrl}. Please provide a valid URL like 'example.com' or 'https://example.com'`);
+	}
+}
+
+// NEW: Enhanced function to validate normalized URLs
+function isValidNormalizedUrl(url: string): boolean {
+	try {
+		const urlObj = new URL(url);
+		
+		// Must be http or https
+		if (!['http:', 'https:'].includes(urlObj.protocol)) {
+			return false;
+		}
+		
+		// Must have a valid hostname
+		if (!urlObj.hostname || urlObj.hostname.length === 0) {
+			return false;
+		}
+		
+		// Must have at least one dot in hostname (for domain.tld)
+		if (!urlObj.hostname.includes('.')) {
+			return false;
+		}
+		
+		// Check for obviously invalid hostnames
+		const invalidPatterns = [
+			'localhost',
+			'127.0.0.1',
+			'0.0.0.0',
+			'example.com',
+			'test.com',
+			'demo.com'
+		];
+		
+		const hostname = urlObj.hostname.toLowerCase();
+		if (invalidPatterns.includes(hostname)) {
+			return false;
+		}
+		
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+// NEW: Function to check if URL is likely to return XML content
+function isLikelyXmlUrl(url: string): boolean {
+	const xmlExtensions = ['.xml', '.rss', '.atom', '.xsl', '.xslt'];
+	const xmlPaths = ['sitemap', 'feed', 'rss', '/api/', '/wp-json/', '.json'];
+	
+	const urlLower = url.toLowerCase();
+	
+	// Check for XML file extensions
+	if (xmlExtensions.some(ext => urlLower.includes(ext))) {
+		return true;
+	}
+	
+	// Check for common XML/API paths
+	if (xmlPaths.some(path => urlLower.includes(path))) {
+		return true;
+	}
+	
+	return false;
+}
+
+// NEW: Function to validate if URL returns HTML content
+async function validateUrlContentType(context: IExecuteFunctions, url: string): Promise<{isValid: boolean, contentType: string, error?: string}> {
+	try {
+		// First do a quick pattern check
+		if (isLikelyXmlUrl(url)) {
+			return {
+				isValid: false,
+				contentType: 'likely-xml',
+				error: 'URL appears to be XML/API endpoint based on pattern matching'
+			};
+		}
+
+		// Make HEAD request to check content type
+		const options: IRequestOptions = {
+			method: 'HEAD' as IHttpRequestMethods,
+			url: url,
+			timeout: 10000,
+			resolveWithFullResponse: true,
+		};
+
+		try {
+			const response = await context.helpers.request(options);
+			const contentType = response.headers['content-type'] || '';
+			
+			// Check if content type indicates HTML
+			const isHtml = contentType.toLowerCase().includes('text/html') || 
+			               contentType.toLowerCase().includes('application/xhtml');
+			
+			if (!isHtml) {
+				return {
+					isValid: false,
+					contentType: contentType,
+					error: `Content-Type '${contentType}' is not HTML`
+				};
+			}
+			
+			return {
+				isValid: true,
+				contentType: contentType
+			};
+		} catch (requestError) {
+			// If HEAD request fails, try a simple GET request approach
+			try {
+				const getOptions: IRequestOptions = {
+					method: 'GET' as IHttpRequestMethods,
+					url: url,
+					timeout: 5000,
+					resolveWithFullResponse: true,
+				};
+				
+				const getResponse = await context.helpers.request(getOptions);
+				const contentType = getResponse.headers['content-type'] || '';
+				
+				const isHtml = contentType.toLowerCase().includes('text/html') || 
+				               contentType.toLowerCase().includes('application/xhtml');
+				
+				if (!isHtml) {
+					return {
+						isValid: false,
+						contentType: contentType,
+						error: `Content-Type '${contentType}' is not HTML`
+					};
+				}
+				
+				return {
+					isValid: true,
+					contentType: contentType
+				};
+			} catch (getError) {
+				// If both requests fail, allow it through (might be server restriction)
+				// PageSpeed Insights will handle the final validation
+				return {
+					isValid: true,
+					contentType: 'unknown',
+					error: `Could not validate content type: ${getError instanceof Error ? getError.message : 'Unknown error'}`
+				};
+			}
+		}
+		
+	} catch (error) {
+		// If validation fails completely, allow it through
+		return {
+			isValid: true,
+			contentType: 'unknown',
+			error: `Could not validate content type: ${error instanceof Error ? error.message : 'Unknown error'}`
+		};
+	}
+}
+
 async function analyzeSingleUrl(
 	context: IExecuteFunctions,
 	apiKey: string,
 	itemIndex: number,
 ): Promise<INodeExecutionData[]> {
-	const url = context.getNodeParameter('url', itemIndex) as string;
+	const rawUrl = context.getNodeParameter('url', itemIndex) as string;
 	const strategy = context.getNodeParameter('strategy', itemIndex) as string;
 	const categories = context.getNodeParameter('categories', itemIndex) as string[];
 	const additionalFields = context.getNodeParameter('additionalFields', itemIndex);
 
-	if (!isValidUrl(url)) {
+	// Normalize and validate URL
+	let url: string;
+	try {
+		url = normalizeUrl(rawUrl);
+	} catch (error) {
+		throw new NodeOperationError(context.getNode(), `URL normalization failed: ${error instanceof Error ? error.message : 'Invalid URL'}`);
+	}
+
+	if (!isValidNormalizedUrl(url)) {
 		throw new NodeOperationError(context.getNode(), `Invalid URL format: ${url}`);
 	}
 
@@ -340,6 +562,7 @@ async function analyzeSingleUrl(
 		results.push({
 			json: {
 				url,
+				originalUrl: rawUrl,
 				strategy: 'both',
 				desktop: formatResponse(desktopResult, (additionalFields as any)?.outputFormat || 'complete'),
 				mobile: formatResponse(mobileResult, (additionalFields as any)?.outputFormat || 'complete'),
@@ -352,6 +575,7 @@ async function analyzeSingleUrl(
 		results.push({
 			json: {
 				url,
+				originalUrl: rawUrl,
 				strategy,
 				...formatResponse(result, (additionalFields as any)?.outputFormat || 'complete'),
 				analysisTime: new Date().toISOString(),
@@ -363,7 +587,7 @@ async function analyzeSingleUrl(
 }
 
 async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): Promise<INodeExecutionData[]> {
-	const urls = context.getNodeParameter('urls', 0) as string[];
+	const rawUrls = context.getNodeParameter('urls', 0) as string[];
 	const strategy = context.getNodeParameter('strategy', 0) as string;
 	const categories = context.getNodeParameter('categories', 0) as string[];
 	const additionalFields = context.getNodeParameter('additionalFields', 0);
@@ -371,35 +595,65 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 	const results: INodeExecutionData[] = [];
 	const maxConcurrent = 3;
 
-	for (let i = 0; i < urls.length; i += maxConcurrent) {
-		const batch = urls.slice(i, i + maxConcurrent);
-		const batchPromises = batch.map(async (url: string) => {
+	// Normalize URLs first
+	const urlPairs: { original: string; normalized: string; error?: string }[] = rawUrls.map(rawUrl => {
+		try {
+			const normalized = normalizeUrl(rawUrl);
+			if (!isValidNormalizedUrl(normalized)) {
+				return {
+					original: rawUrl,
+					normalized: rawUrl,
+					error: 'Invalid URL format after normalization'
+				};
+			}
+			return {
+				original: rawUrl,
+				normalized: normalized
+			};
+		} catch (error) {
+			return {
+				original: rawUrl,
+				normalized: rawUrl,
+				error: error instanceof Error ? error.message : 'URL normalization failed'
+			};
+		}
+	});
+
+	for (let i = 0; i < urlPairs.length; i += maxConcurrent) {
+		const batch = urlPairs.slice(i, i + maxConcurrent);
+		const batchPromises = batch.map(async (urlPair) => {
+			const { original, normalized, error } = urlPair;
+			
 			try {
-				if (!isValidUrl(url)) {
+				// If there was a normalization error, return it immediately
+				if (error) {
 					return {
-						url,
-						error: 'Invalid URL format',
+						url: normalized,
+						originalUrl: original,
+						error: error,
 						analysisTime: new Date().toISOString(),
 					};
 				}
 
 				if (strategy === 'both') {
 					const [desktopResult, mobileResult] = await Promise.all([
-						makePageSpeedRequest(context, apiKey, url, 'desktop', categories, additionalFields),
-						makePageSpeedRequest(context, apiKey, url, 'mobile', categories, additionalFields),
+						makePageSpeedRequest(context, apiKey, normalized, 'desktop', categories, additionalFields),
+						makePageSpeedRequest(context, apiKey, normalized, 'mobile', categories, additionalFields),
 					]);
 
 					return {
-						url,
+						url: normalized,
+						originalUrl: original,
 						strategy: 'both',
 						desktop: formatResponse(desktopResult, (additionalFields as any)?.outputFormat || 'complete'),
 						mobile: formatResponse(mobileResult, (additionalFields as any)?.outputFormat || 'complete'),
 						analysisTime: new Date().toISOString(),
 					};
 				} else {
-					const result = await makePageSpeedRequest(context, apiKey, url, strategy, categories, additionalFields);
+					const result = await makePageSpeedRequest(context, apiKey, normalized, strategy, categories, additionalFields);
 					return {
-						url,
+						url: normalized,
+						originalUrl: original,
 						strategy,
 						...formatResponse(result, (additionalFields as any)?.outputFormat || 'complete'),
 						analysisTime: new Date().toISOString(),
@@ -408,7 +662,8 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 				return {
-					url,
+					url: normalized,
+					originalUrl: original,
 					error: errorMessage,
 					analysisTime: new Date().toISOString(),
 				};
@@ -420,7 +675,7 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 			results.push({ json: result });
 		});
 
-		if (i + maxConcurrent < urls.length) {
+		if (i + maxConcurrent < urlPairs.length) {
 			await delay(1000);
 		}
 	}
@@ -429,14 +684,21 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 }
 
 async function analyzeSitemap(context: IExecuteFunctions, apiKey: string): Promise<INodeExecutionData[]> {
-	const sitemapUrl = context.getNodeParameter('sitemapUrl', 0) as string;
+	const rawSitemapUrl = context.getNodeParameter('sitemapUrl', 0) as string;
 	const strategy = context.getNodeParameter('strategy', 0) as string;
 	const categories = context.getNodeParameter('categories', 0) as string[];
 	const additionalFields = context.getNodeParameter('additionalFields', 0);
 	const urlFilters = context.getNodeParameter('urlFilters', 0) as UrlFilters;
 
-	// Validate sitemap URL
-	if (!isValidUrl(sitemapUrl)) {
+	// Normalize and validate sitemap URL
+	let sitemapUrl: string;
+	try {
+		sitemapUrl = normalizeUrl(rawSitemapUrl);
+	} catch (error) {
+		throw new NodeOperationError(context.getNode(), `Sitemap URL normalization failed: ${error instanceof Error ? error.message : 'Invalid URL'}`);
+	}
+
+	if (!isValidNormalizedUrl(sitemapUrl)) {
 		throw new NodeOperationError(context.getNode(), `Invalid sitemap URL format: ${sitemapUrl}`);
 	}
 
@@ -454,6 +716,7 @@ async function analyzeSitemap(context: IExecuteFunctions, apiKey: string): Promi
 	results.push({
 		json: {
 			sitemapUrl,
+			originalSitemapUrl: rawSitemapUrl,
 			totalUrlsFound: urls.length,
 			urlsToAnalyze: Math.min(urls.length, urlFilters.maxUrls || 50),
 			filters: urlFilters,
@@ -557,7 +820,20 @@ function parseSitemapXml(xmlContent: string, filters: UrlFilters): string[] {
 }
 
 function applyUrlFilters(urls: string[], filters: UrlFilters): string[] {
-	let filteredUrls: string[] = [...urls];
+	let filteredUrls: string[] = [];
+
+	// First normalize all URLs and filter out invalid ones
+	for (const rawUrl of urls) {
+		try {
+			const normalizedUrl = normalizeUrl(rawUrl);
+			if (isValidNormalizedUrl(normalizedUrl)) {
+				filteredUrls.push(normalizedUrl);
+			}
+		} catch (error) {
+			// Skip URLs that can't be normalized
+			continue;
+		}
+	}
 
 	// Include pattern filter
 	if (filters.includePattern) {
@@ -596,6 +872,9 @@ function applyUrlFilters(urls: string[], filters: UrlFilters): string[] {
 		}
 	}
 
+	// Filter out likely XML URLs unless explicitly included
+	filteredUrls = filteredUrls.filter(url => !isLikelyXmlUrl(url));
+
 	// Limit number of URLs
 	const maxUrls: number = filters.maxUrls || 50;
 	if (filteredUrls.length > maxUrls) {
@@ -605,6 +884,7 @@ function applyUrlFilters(urls: string[], filters: UrlFilters): string[] {
 	return filteredUrls;
 }
 
+// UPDATED: Enhanced makePageSpeedRequest with content validation
 async function makePageSpeedRequest(
 	context: IExecuteFunctions,
 	apiKey: string,
@@ -613,6 +893,27 @@ async function makePageSpeedRequest(
 	categories: string[],
 	additionalFields: any,
 ): Promise<any> {
+	// Check if content validation should be skipped
+	const skipValidation = additionalFields?.skipContentValidation || false;
+	
+	// Validate URL content type before making PageSpeed request
+	if (!skipValidation) {
+		const validation = await validateUrlContentType(context, url);
+		
+		if (!validation.isValid) {
+			// Return a structured error instead of throwing
+			return {
+				error: true,
+				errorType: 'INVALID_CONTENT_TYPE',
+				errorMessage: validation.error || `URL returns ${validation.contentType} instead of HTML`,
+				url: url,
+				strategy: strategy,
+				contentType: validation.contentType,
+				analysisTime: new Date().toISOString(),
+			};
+		}
+	}
+
 	const params = new URLSearchParams({
 		url: url,
 		strategy: strategy,
@@ -637,11 +938,39 @@ async function makePageSpeedRequest(
 		timeout: 60000,
 	};
 
-	const response = await context.helpers.request(options);
-	return response;
+	try {
+		const response = await context.helpers.request(options);
+		return response;
+	} catch (error) {
+		// Handle specific PageSpeed API errors
+		if (error instanceof Error && error.message.includes('NOT_HTML')) {
+			return {
+				error: true,
+				errorType: 'NOT_HTML',
+				errorMessage: 'URL does not return HTML content (returns XML, JSON, or other format)',
+				url: url,
+				strategy: strategy,
+				analysisTime: new Date().toISOString(),
+			};
+		}
+		
+		// Re-throw other errors
+		throw error;
+	}
 }
 
+// UPDATED: Enhanced formatResponse to handle error responses
 function formatResponse(response: any, outputFormat: string): any {
+	// Handle error responses from validation or API
+	if (response.error) {
+		return {
+			error: response.errorMessage || 'Analysis failed',
+			errorType: response.errorType || 'UNKNOWN',
+			contentType: response.contentType,
+			skipped: true,
+		};
+	}
+
 	const categories = response.lighthouseResult?.categories || {};
 	const audits = response.lighthouseResult?.audits || {};
 
@@ -699,15 +1028,6 @@ function extractAuditDetails(audits: any): any {
 	});
 
 	return auditDetails;
-}
-
-function isValidUrl(url: string): boolean {
-	try {
-		new URL(url);
-		return url.startsWith('http://') || url.startsWith('https://');
-	} catch {
-		return false;
-	}
 }
 
 function delay(ms: number): Promise<void> {
