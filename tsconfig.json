@@ -1,34 +1,32 @@
 {
   "compilerOptions": {
-    "target": "es2019",
     "module": "commonjs",
-    "lib": ["es2019"],
+    "target": "es2019",
+    "lib": ["es2019", "dom"],
+    "sourceMap": true,
     "declaration": true,
-    "outDir": "./dist",
-    "rootDir": "./",
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
-    "strictFunctionTypes": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "moduleResolution": "node",
-    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".", // Base URL is the project root (where package.json and tsconfig.json are)
+    "outDir": "./dist", // Compiled JS goes to 'dist'
+    "rootDir": "./src", // TypeScript source files are in 'src'
     "esModuleInterop": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "types": ["node", "jest"]
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "credentials/**/*",
-    "nodes/**/*"
+    "src/**/*.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules",
-    "**/*.test.ts"
+    "dist"
   ]
 }
