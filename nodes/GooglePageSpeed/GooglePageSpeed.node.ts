@@ -399,8 +399,8 @@ function isValidNormalizedUrl(url: string): boolean {
 			return false;
 		}
 		
-		// Block obvious test/local domains
-		const blockedDomains = ['localhost', '127.0.0.1', '0.0.0.0', 'example.com', 'test.com', 'demo.com', 'sample.com'];
+		// Block only localhost/IP addresses - remove overly strict domain blocking
+		const blockedDomains = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
 		if (blockedDomains.includes(urlObj.hostname.toLowerCase())) {
 			return false;
 		}
@@ -534,12 +534,19 @@ async function analyzeSingleUrl(
 	let url: string;
 	try {
 		url = normalizeUrl(rawUrl);
+		console.log(`Normalized URL: "${rawUrl}" -> "${url}"`); // Debug log
 	} catch (error) {
-		throw new NodeOperationError(context.getNode(), `URL normalization failed: ${error instanceof Error ? error.message : 'Invalid URL'}`);
+		throw new NodeOperationError(context.getNode(), `URL normalization failed for "${rawUrl}": ${error instanceof Error ? error.message : 'Invalid URL'}`);
 	}
 
 	if (!isValidNormalizedUrl(url)) {
-		throw new NodeOperationError(context.getNode(), `Invalid URL format: ${url}`);
+		// More specific error message for debugging
+		try {
+			const urlObj = new URL(url);
+			throw new NodeOperationError(context.getNode(), `URL validation failed for "${url}". Protocol: ${urlObj.protocol}, Hostname: ${urlObj.hostname}, Original: "${rawUrl}"`);
+		} catch {
+			throw new NodeOperationError(context.getNode(), `Invalid URL format: "${url}" (normalized from "${rawUrl}")`);
+		}
 	}
 
 	const results: INodeExecutionData[] = [];
