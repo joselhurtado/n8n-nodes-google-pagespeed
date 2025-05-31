@@ -39,7 +39,7 @@ A comprehensive n8n community node for **Google PageSpeed Insights API**, provid
 npm install n8n-nodes-google-pagespeed
 
 # Restart n8n
-n8n start'''
+n8n start
 
 ### Version History
 - **v1.0.0** - Initial release with core PageSpeed functionality
