@@ -310,39 +310,40 @@ export class GooglePageSpeed implements INodeType {
 	}
 }
 
-// NEW: Function to normalize and clean URLs provided by users
+// Function to normalize and clean URLs provided by users
 function normalizeUrl(inputUrl: string): string {
 	if (!inputUrl || typeof inputUrl !== 'string') {
 		throw new Error('URL is required and must be a string');
 	}
 
-	// Remove leading/trailing whitespace and common prefixes
+	// Remove leading/trailing whitespace
 	let url = inputUrl.trim();
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty');
 	}
 
-	// Remove common prefixes that users might add
-	url = url.replace(/^(www\.)?/, '');
-	url = url.replace(/^(http:\/\/)?(www\.)?/, '');
-	url = url.replace(/^(https:\/\/)?(www\.)?/, '');
-	
-	// Remove leading slashes or dots
-	url = url.replace(/^[\/\.]+/, '');
+	// Remove leading slashes, dots, or spaces
+	url = url.replace(/^[\/\s\.]+/, '');
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty after cleaning');
 	}
 
-	// Add https protocol
-	url = 'https://' + url;
+	// Check if URL already has a protocol
+	if (!url.match(/^https?:\/\//i)) {
+		// No protocol found, add https://
+		url = 'https://' + url;
+	} else {
+		// Has protocol, ensure it's https
+		url = url.replace(/^http:\/\//i, 'https://');
+	}
 	
 	try {
-		// Test if URL is valid
+		// Create URL object to validate and clean
 		const urlObj = new URL(url);
 		
-		// Basic validation
+		// Basic hostname validation
 		if (!urlObj.hostname || urlObj.hostname.length < 3) {
 			throw new Error('Invalid hostname');
 		}
@@ -352,7 +353,7 @@ function normalizeUrl(inputUrl: string): string {
 			throw new Error('Invalid domain format - must include TLD');
 		}
 		
-		// Remove trailing slash from pathname if it's just "/"
+		// Clean up pathname - remove trailing slash if it's just root
 		if (urlObj.pathname === '/') {
 			urlObj.pathname = '';
 		}
@@ -363,22 +364,22 @@ function normalizeUrl(inputUrl: string): string {
 			urlObj.searchParams.delete(param);
 		});
 		
-		// Get clean URL
+		// Get the final clean URL
 		let cleanUrl = urlObj.toString();
 		
-		// Remove trailing slash if present (except for root)
-		if (cleanUrl.endsWith('/') && cleanUrl !== urlObj.origin + '/') {
+		// Remove trailing slash if present (but not for root domain)
+		if (cleanUrl.endsWith('/') && cleanUrl.length > urlObj.origin.length + 1) {
 			cleanUrl = cleanUrl.slice(0, -1);
 		}
 		
 		return cleanUrl;
 		
 	} catch (error) {
-		throw new Error(`Invalid URL: "${inputUrl}". Please provide a valid domain like "example.com" or "https://example.com"`);
+		throw new Error(`Could not parse URL: "${inputUrl}". Please provide a valid domain like "example.com"`);
 	}
 }
 
-// NEW: Simplified URL validation
+// Function to validate normalized URLs
 function isValidNormalizedUrl(url: string): boolean {
 	try {
 		const urlObj = new URL(url);
@@ -410,7 +411,7 @@ function isValidNormalizedUrl(url: string): boolean {
 	}
 }
 
-// NEW: Function to check if URL is likely to return XML content
+// Function to check if URL is likely to return XML content
 function isLikelyXmlUrl(url: string): boolean {
 	const xmlExtensions = ['.xml', '.rss', '.atom', '.xsl', '.xslt'];
 	const xmlPaths = ['sitemap', 'feed', 'rss', '/api/', '/wp-json/', '.json'];
@@ -430,7 +431,7 @@ function isLikelyXmlUrl(url: string): boolean {
 	return false;
 }
 
-// NEW: Function to validate if URL returns HTML content
+// Function to validate if URL returns HTML content
 async function validateUrlContentType(context: IExecuteFunctions, url: string): Promise<{isValid: boolean, contentType: string, error?: string}> {
 	try {
 		// First do a quick pattern check
@@ -886,7 +887,6 @@ function applyUrlFilters(urls: string[], filters: UrlFilters): string[] {
 	return filteredUrls;
 }
 
-// UPDATED: Enhanced makePageSpeedRequest with content validation
 async function makePageSpeedRequest(
 	context: IExecuteFunctions,
 	apiKey: string,
@@ -961,7 +961,6 @@ async function makePageSpeedRequest(
 	}
 }
 
-// UPDATED: Enhanced formatResponse to handle error responses
 function formatResponse(response: any, outputFormat: string): any {
 	// Handle error responses from validation or API
 	if (response.error) {
