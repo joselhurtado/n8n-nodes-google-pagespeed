@@ -310,48 +310,65 @@ export class GooglePageSpeed implements INodeType {
 	}
 }
 
-// Simple and robust URL normalization function
+// Simple and robust URL normalization function - COMPLETELY REWRITTEN
 function normalizeUrl(inputUrl: string): string {
+	console.log(`🔧 NORMALIZE: Starting with: "${inputUrl}"`);
+	
 	if (!inputUrl || typeof inputUrl !== 'string') {
 		throw new Error('URL is required and must be a string');
 	}
 
-	// Remove leading/trailing whitespace
+	// Clean the input
 	let url = inputUrl.trim();
+	console.log(`🔧 NORMALIZE: After trim: "${url}"`);
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty');
 	}
 
-	// Remove leading slashes, dots that users might accidentally add
+	// Remove problematic leading characters
 	url = url.replace(/^[\/\s\.]+/, '').trim();
+	console.log(`🔧 NORMALIZE: After cleaning: "${url}"`);
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty after cleaning');
 	}
 
-	// Add protocol if missing - simple check
+	// Force add protocol if missing - be very explicit
 	if (!url.startsWith('http://') && !url.startsWith('https://')) {
 		url = 'https://' + url;
+		console.log(`🔧 NORMALIZE: Added protocol: "${url}"`);
+	} else {
+		console.log(`🔧 NORMALIZE: Protocol already present: "${url}"`);
 	}
 	
 	// Convert http to https
 	if (url.startsWith('http://')) {
 		url = url.replace('http://', 'https://');
+		console.log(`🔧 NORMALIZE: Converted to https: "${url}"`);
+	}
+	
+	// Test URL construction BEFORE doing any complex processing
+	try {
+		const testUrl = new URL(url);
+		console.log(`🔧 NORMALIZE: URL constructor test passed: "${testUrl.toString()}"`);
+	} catch (error) {
+		console.log(`🔧 NORMALIZE: URL constructor test FAILED: ${error}`);
+		throw new Error(`Could not create valid URL from: "${url}". Original input: "${inputUrl}"`);
 	}
 	
 	try {
-		// Validate with URL constructor
+		// Now do the full processing
 		const urlObj = new URL(url);
 		
 		// Must have a hostname
 		if (!urlObj.hostname || urlObj.hostname.length === 0) {
-			throw new Error('Invalid hostname');
+			throw new Error(`Invalid hostname in URL: "${url}"`);
 		}
 		
 		// Must have a TLD (contain a dot) unless localhost
 		if (!urlObj.hostname.includes('.') && urlObj.hostname !== 'localhost') {
-			throw new Error('Invalid domain format - must include TLD like .com, .org, etc.');
+			throw new Error(`Invalid domain format - must include TLD like .com, .org, etc. Got: "${urlObj.hostname}"`);
 		}
 		
 		// Clean up the URL
@@ -372,43 +389,78 @@ function normalizeUrl(inputUrl: string): string {
 			cleanUrl = cleanUrl.slice(0, -1);
 		}
 		
+		console.log(`🔧 NORMALIZE: Final result: "${cleanUrl}"`);
 		return cleanUrl;
 		
 	} catch (error) {
-		throw new Error(`Could not parse URL: "${inputUrl}". Please provide a valid domain like "example.com"`);
+		console.log(`🔧 NORMALIZE: Processing failed: ${error}`);
+		throw new Error(`Could not process URL: "${url}". Original input: "${inputUrl}". Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 	}
 }
 
 // Simple URL validation
 function isValidNormalizedUrl(url: string): boolean {
+	console.log(`🔍 VALIDATION: Testing URL: "${url}"`);
+	
 	try {
 		const urlObj = new URL(url);
+		console.log(`🔍 VALIDATION: URL parsed successfully. Protocol: ${urlObj.protocol}, Hostname: ${urlObj.hostname}`);
 		
 		// Must be https
 		if (urlObj.protocol !== 'https:') {
+			console.log(`🔍 VALIDATION: Failed - protocol is ${urlObj.protocol}, expected https:`);
 			return false;
 		}
 		
 		// Must have hostname
 		if (!urlObj.hostname || urlObj.hostname.length === 0) {
+			console.log(`🔍 VALIDATION: Failed - no hostname`);
 			return false;
 		}
 		
 		// Must have TLD or be localhost
 		if (!urlObj.hostname.includes('.') && urlObj.hostname !== 'localhost') {
+			console.log(`🔍 VALIDATION: Failed - hostname "${urlObj.hostname}" has no TLD and is not localhost`);
 			return false;
 		}
 		
 		// Block obvious invalid domains
 		const blocked = ['127.0.0.1', '0.0.0.0', '::1'];
 		if (blocked.includes(urlObj.hostname.toLowerCase())) {
+			console.log(`🔍 VALIDATION: Failed - hostname "${urlObj.hostname}" is blocked`);
 			return false;
 		}
 		
+		console.log(`🔍 VALIDATION: Success - URL is valid`);
 		return true;
-	} catch {
+	} catch (error) {
+		console.log(`🔍 VALIDATION: Failed - URL constructor error: ${error}`);
 		return false;
 	}
+}
+
+// DEBUG: Test function to validate URL normalization (can be removed later)
+function testUrlNormalization() {
+	console.log('🧪 TESTING URL NORMALIZATION...');
+	const testCases = [
+		'jhurtado.com',
+		'google.com', 
+		'www.facebook.com',
+		'http://example.com',
+		'https://site.com'
+	];
+	
+	testCases.forEach(testUrl => {
+		console.log(`\n--- Testing: "${testUrl}" ---`);
+		try {
+			const normalized = normalizeUrl(testUrl);
+			const isValid = isValidNormalizedUrl(normalized);
+			console.log(`✅ Result: "${normalized}" (Valid: ${isValid})`);
+		} catch (error) {
+			console.log(`❌ Error: ${error}`);
+		}
+	});
+	console.log('🧪 TESTING COMPLETE\n');
 }
 
 // Function to check if URL is likely XML
@@ -561,6 +613,9 @@ async function analyzeSingleUrl(
 ): Promise<INodeExecutionData[]> {
 	console.log('🚀 Starting single URL analysis...');
 	
+	// DEBUG: Test normalization function first
+	testUrlNormalization();
+	
 	// Get URL with comprehensive debugging
 	const rawUrl = getUrlFromInput(context, itemIndex);
 	
@@ -578,28 +633,37 @@ async function analyzeSingleUrl(
 	const categories = context.getNodeParameter('categories', itemIndex) as string[];
 	const additionalFields = context.getNodeParameter('additionalFields', itemIndex);
 
-	// Normalize URL
+	// Test normalization with detailed logging
+	console.log('🔧 About to normalize URL...');
 	let url: string;
 	try {
 		url = normalizeUrl(rawUrl);
-		console.log(`✅ Successfully normalized: "${rawUrl}" → "${url}"`);
+		console.log(`✅ NORMALIZATION SUCCESS: "${rawUrl}" → "${url}"`);
 	} catch (error) {
-		console.log(`❌ Normalization failed: ${error}`);
-		throw new NodeOperationError(context.getNode(), `URL normalization failed for "${rawUrl}": ${error instanceof Error ? error.message : 'Invalid URL'}`);
+		console.log(`❌ NORMALIZATION FAILED: ${error}`);
+		const errorMsg = error instanceof Error ? error.message : 'Invalid URL';
+		throw new NodeOperationError(context.getNode(), `URL normalization failed for "${rawUrl}": ${errorMsg}`);
 	}
 
-	// Validate URL
+	// Test validation with detailed logging
+	console.log('🔍 About to validate URL...');
 	if (!isValidNormalizedUrl(url)) {
-		console.log(`❌ Validation failed for: "${url}"`);
+		console.log(`❌ VALIDATION FAILED for: "${url}"`);
+		
+		// Try to give more specific error info
 		try {
 			const urlObj = new URL(url);
-			throw new NodeOperationError(context.getNode(), `URL validation failed for "${url}". Protocol: ${urlObj.protocol}, Hostname: "${urlObj.hostname}", Original: "${rawUrl}"`);
-		} catch {
-			throw new NodeOperationError(context.getNode(), `Invalid URL format: "${url}" (normalized from "${rawUrl}")`);
+			const errorDetails = `URL validation failed for "${url}". Protocol: ${urlObj.protocol}, Hostname: "${urlObj.hostname}", Original: "${rawUrl}"`;
+			console.log(`❌ ${errorDetails}`);
+			throw new NodeOperationError(context.getNode(), errorDetails);
+		} catch (urlError) {
+			const fallbackError = `Invalid URL format: "${url}" (normalized from "${rawUrl}"). URL constructor error: ${urlError}`;
+			console.log(`❌ ${fallbackError}`);
+			throw new NodeOperationError(context.getNode(), fallbackError);
 		}
 	}
 
-	console.log(`✅ URL validation passed: "${url}"`);
+	console.log(`✅ VALIDATION SUCCESS: "${url}"`);
 
 	const results: INodeExecutionData[] = [];
 
