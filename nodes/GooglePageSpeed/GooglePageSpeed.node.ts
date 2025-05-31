@@ -316,41 +316,49 @@ function normalizeUrl(inputUrl: string): string {
 		throw new Error('URL is required and must be a string');
 	}
 
-	// Remove leading/trailing whitespace
+	// Remove leading/trailing whitespace and common problematic characters
 	let url = inputUrl.trim();
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty');
 	}
 
-	// Remove leading slashes, dots, or spaces
+	// Remove leading slashes, dots, or spaces that users might accidentally add
 	url = url.replace(/^[\/\s\.]+/, '');
+	
+	// Remove any remaining whitespace
+	url = url.trim();
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty after cleaning');
 	}
 
-	// Check if URL already has a protocol
-	if (!url.match(/^https?:\/\//i)) {
+	// Simple and reliable protocol detection and addition
+	const hasProtocol = /^https?:\/\//i.test(url);
+	
+	if (!hasProtocol) {
 		// No protocol found, add https://
 		url = 'https://' + url;
 	} else {
-		// Has protocol, ensure it's https
+		// Has protocol, normalize to https
 		url = url.replace(/^http:\/\//i, 'https://');
 	}
+	
+	// Additional cleanup - remove any double slashes after protocol
+	url = url.replace(/^(https:\/\/)\/+/, '$1');
 	
 	try {
 		// Create URL object to validate and clean
 		const urlObj = new URL(url);
 		
 		// Basic hostname validation
-		if (!urlObj.hostname || urlObj.hostname.length < 3) {
+		if (!urlObj.hostname || urlObj.hostname.length < 1) {
 			throw new Error('Invalid hostname');
 		}
 		
-		// Must contain at least one dot for domain.tld
-		if (!urlObj.hostname.includes('.')) {
-			throw new Error('Invalid domain format - must include TLD');
+		// Must contain at least one dot for domain.tld (unless localhost for testing)
+		if (!urlObj.hostname.includes('.') && !urlObj.hostname.toLowerCase().includes('localhost')) {
+			throw new Error('Invalid domain format - must include TLD (like .com, .org, etc.)');
 		}
 		
 		// Clean up pathname - remove trailing slash if it's just root
@@ -358,7 +366,7 @@ function normalizeUrl(inputUrl: string): string {
 			urlObj.pathname = '';
 		}
 		
-		// Remove common tracking parameters
+		// Remove common tracking parameters that might interfere with PageSpeed
 		const paramsToRemove = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'];
 		paramsToRemove.forEach(param => {
 			urlObj.searchParams.delete(param);
@@ -375,7 +383,7 @@ function normalizeUrl(inputUrl: string): string {
 		return cleanUrl;
 		
 	} catch (error) {
-		throw new Error(`Could not parse URL: "${inputUrl}". Please provide a valid domain like "example.com"`);
+		throw new Error(`Could not parse URL: "${inputUrl}". Please provide a valid domain like "example.com" or "https://example.com"`);
 	}
 }
 
@@ -390,18 +398,18 @@ function isValidNormalizedUrl(url: string): boolean {
 		}
 		
 		// Must have a hostname
-		if (!urlObj.hostname || urlObj.hostname.length < 3) {
+		if (!urlObj.hostname || urlObj.hostname.length < 1) {
 			return false;
 		}
 		
-		// Must have a TLD (contain a dot)
-		if (!urlObj.hostname.includes('.')) {
+		// Must have a TLD (contain a dot) OR be localhost for testing
+		if (!urlObj.hostname.includes('.') && !urlObj.hostname.toLowerCase().includes('localhost')) {
 			return false;
 		}
 		
-		// Block only localhost/IP addresses - remove overly strict domain blocking
-		const blockedDomains = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
-		if (blockedDomains.includes(urlObj.hostname.toLowerCase())) {
+		// Block only localhost/IP addresses for production, but allow for testing
+		const blockedInProduction = ['127.0.0.1', '0.0.0.0', '::1'];
+		if (blockedInProduction.includes(urlObj.hostname.toLowerCase())) {
 			return false;
 		}
 		
@@ -409,6 +417,25 @@ function isValidNormalizedUrl(url: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+// TEMPORARY DEBUG FUNCTION - Add this to test URL normalization
+// Remove this function after testing
+function testUrlNormalization(inputUrl: string): void {
+	console.log(`Testing URL: "${inputUrl}"`);
+	try {
+		const normalized = normalizeUrl(inputUrl);
+		console.log(`✅ Normalized: "${normalized}"`);
+		const isValid = isValidNormalizedUrl(normalized);
+		console.log(`✅ Valid: ${isValid}`);
+		if (!isValid) {
+			const urlObj = new URL(normalized);
+			console.log(`❌ Validation details - Protocol: ${urlObj.protocol}, Hostname: ${urlObj.hostname}`);
+		}
+	} catch (error) {
+		console.log(`❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+	}
+	console.log('---');
 }
 
 // Function to check if URL is likely to return XML content
