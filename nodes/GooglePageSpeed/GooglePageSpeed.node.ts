@@ -71,8 +71,8 @@ export class GooglePageSpeed implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				placeholder: 'https://example.com or {{ $json["URL To be Analized"] }}',
-				description: 'The URL of the website to analyze. Can be a direct URL or use expressions like {{ $json["URL To be Analized"] }}',
+				placeholder: 'example.com or https://example.com',
+				description: 'The URL of the website to analyze. Protocol (https://) will be added automatically if missing.',
 				displayOptions: {
 					show: {
 						operation: ['analyzeSingle'],
@@ -310,185 +310,100 @@ export class GooglePageSpeed implements INodeType {
 	}
 }
 
-// Simple and robust URL normalization function - COMPLETELY REWRITTEN
-function normalizeUrl(inputUrl: string): string {
-	console.log(`🔧 NORMALIZE: Starting with: "${inputUrl}"`);
+// BULLETPROOF URL NORMALIZATION - Cannot fail
+function fixUrl(inputUrl: string): string {
+	// This function GUARANTEES a valid HTTPS URL or throws a clear error
 	
 	if (!inputUrl || typeof inputUrl !== 'string') {
-		throw new Error('URL is required and must be a string');
+		throw new Error('URL is required');
 	}
-
+	
 	// Clean the input
 	let url = inputUrl.trim();
-	console.log(`🔧 NORMALIZE: After trim: "${url}"`);
-	
-	if (url.length === 0) {
+	if (!url) {
 		throw new Error('URL cannot be empty');
 	}
-
-	// Remove problematic leading characters
+	
+	// Remove any leading junk
 	url = url.replace(/^[\/\s\.]+/, '').trim();
-	console.log(`🔧 NORMALIZE: After cleaning: "${url}"`);
-	
-	if (url.length === 0) {
-		throw new Error('URL cannot be empty after cleaning');
-	}
-
-	// Force add protocol if missing - be very explicit
-	if (!url.startsWith('http://') && !url.startsWith('https://')) {
-		url = 'https://' + url;
-		console.log(`🔧 NORMALIZE: Added protocol: "${url}"`);
-	} else {
-		console.log(`🔧 NORMALIZE: Protocol already present: "${url}"`);
+	if (!url) {
+		throw new Error('URL is empty after cleaning');
 	}
 	
-	// Convert http to https
+	// Absolutely force HTTPS protocol
 	if (url.startsWith('http://')) {
-		url = url.replace('http://', 'https://');
-		console.log(`🔧 NORMALIZE: Converted to https: "${url}"`);
+		url = 'https://' + url.substring(7);
+	} else if (url.startsWith('https://')) {
+		// Already has https, keep it
+	} else {
+		// No protocol, add https
+		url = 'https://' + url;
 	}
 	
-	// Test URL construction BEFORE doing any complex processing
+	// Validate the final URL
 	try {
-		const testUrl = new URL(url);
-		console.log(`🔧 NORMALIZE: URL constructor test passed: "${testUrl.toString()}"`);
-	} catch (error) {
-		console.log(`🔧 NORMALIZE: URL constructor test FAILED: ${error}`);
-		throw new Error(`Could not create valid URL from: "${url}". Original input: "${inputUrl}"`);
-	}
-	
-	try {
-		// Now do the full processing
 		const urlObj = new URL(url);
 		
-		// Must have a hostname
-		if (!urlObj.hostname || urlObj.hostname.length === 0) {
-			throw new Error(`Invalid hostname in URL: "${url}"`);
+		// Must have a hostname with a dot (TLD)
+		if (!urlObj.hostname || !urlObj.hostname.includes('.')) {
+			throw new Error(`Invalid domain: ${urlObj.hostname}`);
 		}
 		
-		// Must have a TLD (contain a dot) unless localhost
-		if (!urlObj.hostname.includes('.') && urlObj.hostname !== 'localhost') {
-			throw new Error(`Invalid domain format - must include TLD like .com, .org, etc. Got: "${urlObj.hostname}"`);
-		}
-		
-		// Clean up the URL
-		if (urlObj.pathname === '/') {
-			urlObj.pathname = '';
-		}
-		
-		// Remove tracking parameters
-		const paramsToRemove = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'];
-		paramsToRemove.forEach(param => {
-			urlObj.searchParams.delete(param);
-		});
-		
-		let cleanUrl = urlObj.toString();
-		
-		// Remove trailing slash if not root
-		if (cleanUrl.endsWith('/') && cleanUrl.length > urlObj.origin.length + 1) {
-			cleanUrl = cleanUrl.slice(0, -1);
-		}
-		
-		console.log(`🔧 NORMALIZE: Final result: "${cleanUrl}"`);
-		return cleanUrl;
-		
+		return urlObj.toString();
 	} catch (error) {
-		console.log(`🔧 NORMALIZE: Processing failed: ${error}`);
-		throw new Error(`Could not process URL: "${url}". Original input: "${inputUrl}". Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		throw new Error(`Cannot create valid URL from "${inputUrl}": ${error instanceof Error ? error.message : 'Invalid format'}`);
 	}
 }
 
-// Simple URL validation
-function isValidNormalizedUrl(url: string): boolean {
-	console.log(`🔍 VALIDATION: Testing URL: "${url}"`);
-	
+// Get URL from input with fallback support
+function getUrlFromInput(context: IExecuteFunctions, itemIndex: number): string {
+	// Try parameter first
+	let rawUrl = '';
 	try {
-		const urlObj = new URL(url);
-		console.log(`🔍 VALIDATION: URL parsed successfully. Protocol: ${urlObj.protocol}, Hostname: ${urlObj.hostname}`);
-		
-		// Must be https
-		if (urlObj.protocol !== 'https:') {
-			console.log(`🔍 VALIDATION: Failed - protocol is ${urlObj.protocol}, expected https:`);
-			return false;
-		}
-		
-		// Must have hostname
-		if (!urlObj.hostname || urlObj.hostname.length === 0) {
-			console.log(`🔍 VALIDATION: Failed - no hostname`);
-			return false;
-		}
-		
-		// Must have TLD or be localhost
-		if (!urlObj.hostname.includes('.') && urlObj.hostname !== 'localhost') {
-			console.log(`🔍 VALIDATION: Failed - hostname "${urlObj.hostname}" has no TLD and is not localhost`);
-			return false;
-		}
-		
-		// Block obvious invalid domains
-		const blocked = ['127.0.0.1', '0.0.0.0', '::1'];
-		if (blocked.includes(urlObj.hostname.toLowerCase())) {
-			console.log(`🔍 VALIDATION: Failed - hostname "${urlObj.hostname}" is blocked`);
-			return false;
-		}
-		
-		console.log(`🔍 VALIDATION: Success - URL is valid`);
-		return true;
+		rawUrl = context.getNodeParameter('url', itemIndex) as string;
 	} catch (error) {
-		console.log(`🔍 VALIDATION: Failed - URL constructor error: ${error}`);
-		return false;
+		// Parameter failed, try input data
 	}
-}
-
-// DEBUG: Test function to validate URL normalization (can be removed later)
-function testUrlNormalization() {
-	console.log('🧪 TESTING URL NORMALIZATION...');
-	const testCases = [
-		'jhurtado.com',
-		'google.com', 
-		'www.facebook.com',
-		'http://example.com',
-		'https://site.com'
-	];
 	
-	testCases.forEach(testUrl => {
-		console.log(`\n--- Testing: "${testUrl}" ---`);
+	// If parameter is empty or looks like unresolved expression, try input data
+	if (!rawUrl || rawUrl.includes('{{') || rawUrl.includes('$json')) {
 		try {
-			const normalized = normalizeUrl(testUrl);
-			const isValid = isValidNormalizedUrl(normalized);
-			console.log(`✅ Result: "${normalized}" (Valid: ${isValid})`);
+			const inputData = context.getInputData();
+			if (inputData[itemIndex] && inputData[itemIndex].json) {
+				const jsonData = inputData[itemIndex].json as any;
+				rawUrl = jsonData['URL To be Analized'] || 
+				         jsonData['url'] || 
+				         jsonData['URL'] || 
+				         jsonData['website'] || 
+				         jsonData['link'] || 
+				         jsonData['domain'] || '';
+			}
 		} catch (error) {
-			console.log(`❌ Error: ${error}`);
+			// Input data failed, use whatever we have
 		}
-	});
-	console.log('🧪 TESTING COMPLETE\n');
+	}
+	
+	return rawUrl;
 }
 
-// Function to check if URL is likely XML
+// Check if URL might return XML content
 function isLikelyXmlUrl(url: string): boolean {
-	const xmlExtensions = ['.xml', '.rss', '.atom', '.xsl', '.xslt'];
-	const xmlPaths = ['sitemap', 'feed', 'rss', '/api/', '/wp-json/', '.json'];
-	
+	const xmlExtensions = ['.xml', '.rss', '.atom'];
+	const xmlPaths = ['sitemap', 'feed', 'rss', '/api/', '.json'];
 	const urlLower = url.toLowerCase();
 	
-	if (xmlExtensions.some(ext => urlLower.includes(ext))) {
-		return true;
-	}
-	
-	if (xmlPaths.some(path => urlLower.includes(path))) {
-		return true;
-	}
-	
-	return false;
+	return xmlExtensions.some(ext => urlLower.includes(ext)) || 
+	       xmlPaths.some(path => urlLower.includes(path));
 }
 
-// Content validation function
+// Validate URL content type
 async function validateUrlContentType(context: IExecuteFunctions, url: string): Promise<{isValid: boolean, contentType: string, error?: string}> {
 	try {
 		if (isLikelyXmlUrl(url)) {
 			return {
 				isValid: false,
 				contentType: 'likely-xml',
-				error: 'URL appears to be XML/API endpoint based on pattern matching'
+				error: 'URL appears to be XML/API endpoint'
 			};
 		}
 
@@ -499,111 +414,24 @@ async function validateUrlContentType(context: IExecuteFunctions, url: string): 
 			resolveWithFullResponse: true,
 		};
 
-		try {
-			const response = await context.helpers.request(options);
-			const contentType = response.headers['content-type'] || '';
-			
-			const isHtml = contentType.toLowerCase().includes('text/html') || 
-			               contentType.toLowerCase().includes('application/xhtml');
-			
-			if (!isHtml) {
-				return {
-					isValid: false,
-					contentType: contentType,
-					error: `Content-Type '${contentType}' is not HTML`
-				};
-			}
-			
-			return {
-				isValid: true,
-				contentType: contentType
-			};
-		} catch (requestError) {
-			return {
-				isValid: true,
-				contentType: 'unknown',
-				error: `Could not validate content type: ${requestError instanceof Error ? requestError.message : 'Unknown error'}`
-			};
-		}
+		const response = await context.helpers.request(options);
+		const contentType = response.headers['content-type'] || '';
 		
+		const isHtml = contentType.toLowerCase().includes('text/html');
+		
+		return {
+			isValid: isHtml,
+			contentType: contentType,
+			error: isHtml ? undefined : `Content-Type '${contentType}' is not HTML`
+		};
 	} catch (error) {
+		// If validation fails, allow it through
 		return {
 			isValid: true,
 			contentType: 'unknown',
-			error: `Could not validate content type: ${error instanceof Error ? error.message : 'Unknown error'}`
+			error: undefined
 		};
 	}
-}
-
-// COMPLETELY REWRITTEN URL INPUT FUNCTION with comprehensive debugging
-function getUrlFromInput(context: IExecuteFunctions, itemIndex: number): string {
-	console.log('🔍 DEBUG: Starting URL extraction...');
-	
-	// Method 1: Try to get URL from parameter (n8n should resolve expressions automatically)
-	let rawUrl: string;
-	try {
-		rawUrl = context.getNodeParameter('url', itemIndex) as string;
-		console.log(`🔍 DEBUG: Raw URL from parameter: "${rawUrl}"`);
-	} catch (error) {
-		console.log(`🔍 DEBUG: Error getting parameter: ${error}`);
-		rawUrl = '';
-	}
-	
-	// Method 2: If parameter is empty, unresolved expression, or seems invalid, try input data
-	const needsFallback = !rawUrl || 
-	                     rawUrl.trim().length === 0 || 
-	                     rawUrl.includes('{{') || 
-	                     rawUrl.includes('$json') ||
-	                     rawUrl === 'undefined' ||
-	                     rawUrl === 'null';
-	
-	console.log(`🔍 DEBUG: Needs fallback: ${needsFallback}`);
-	
-	if (needsFallback) {
-		console.log('🔍 DEBUG: Trying to get URL from input data...');
-		try {
-			const inputData = context.getInputData();
-			console.log(`🔍 DEBUG: Input data length: ${inputData.length}`);
-			
-			if (inputData[itemIndex] && inputData[itemIndex].json) {
-				const jsonData = inputData[itemIndex].json as any;
-				console.log(`🔍 DEBUG: JSON data keys: ${Object.keys(jsonData)}`);
-				
-				// Try multiple common field names
-				const possibleFields = [
-					'URL To be Analized',
-					'url', 
-					'URL', 
-					'website', 
-					'link', 
-					'domain',
-					'site',
-					'pageUrl',
-					'targetUrl'
-				];
-				
-				for (const field of possibleFields) {
-					if (jsonData[field] && typeof jsonData[field] === 'string' && jsonData[field].trim().length > 0) {
-						rawUrl = jsonData[field];
-						console.log(`🔍 DEBUG: Found URL in field "${field}": "${rawUrl}"`);
-						break;
-					}
-				}
-				
-				if (!rawUrl) {
-					console.log('🔍 DEBUG: No URL found in any common fields');
-					console.log(`🔍 DEBUG: Available data: ${JSON.stringify(jsonData, null, 2)}`);
-				}
-			} else {
-				console.log('🔍 DEBUG: No JSON data available at index', itemIndex);
-			}
-		} catch (error) {
-			console.log(`🔍 DEBUG: Error accessing input data: ${error}`);
-		}
-	}
-	
-	console.log(`🔍 DEBUG: Final raw URL: "${rawUrl}"`);
-	return rawUrl || '';
 }
 
 async function analyzeSingleUrl(
@@ -611,69 +439,38 @@ async function analyzeSingleUrl(
 	apiKey: string,
 	itemIndex: number,
 ): Promise<INodeExecutionData[]> {
-	console.log('🚀 Starting single URL analysis...');
-	
-	// DEBUG: Test normalization function first
-	testUrlNormalization();
-	
-	// Get URL with comprehensive debugging
+	// Get the raw URL
 	const rawUrl = getUrlFromInput(context, itemIndex);
 	
-	if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.trim().length === 0) {
-		console.log('❌ No valid URL found');
-		throw new NodeOperationError(
-			context.getNode(), 
-			'No valid URL found. Please provide a URL in the field or ensure your JSON data contains a URL field like "URL To be Analized", "url", or "website". Check the console for debugging details.'
-		);
+	if (!rawUrl) {
+		throw new NodeOperationError(context.getNode(), 'No URL provided. Please enter a URL like "example.com" or "https://example.com"');
 	}
 
-	console.log(`📝 Raw URL received: "${rawUrl}"`);
+	console.log(`🔧 Processing URL: "${rawUrl}"`);
+
+	// Fix the URL - this CANNOT fail to add https://
+	let finalUrl: string;
+	try {
+		finalUrl = fixUrl(rawUrl);
+		console.log(`✅ URL fixed: "${rawUrl}" → "${finalUrl}"`);
+	} catch (error) {
+		const errorMsg = error instanceof Error ? error.message : 'Invalid URL format';
+		throw new NodeOperationError(context.getNode(), `URL error: ${errorMsg}`);
+	}
 
 	const strategy = context.getNodeParameter('strategy', itemIndex) as string;
 	const categories = context.getNodeParameter('categories', itemIndex) as string[];
 	const additionalFields = context.getNodeParameter('additionalFields', itemIndex);
 
-	// Test normalization with detailed logging
-	console.log('🔧 About to normalize URL...');
-	let url: string;
-	try {
-		url = normalizeUrl(rawUrl);
-		console.log(`✅ NORMALIZATION SUCCESS: "${rawUrl}" → "${url}"`);
-	} catch (error) {
-		console.log(`❌ NORMALIZATION FAILED: ${error}`);
-		const errorMsg = error instanceof Error ? error.message : 'Invalid URL';
-		throw new NodeOperationError(context.getNode(), `URL normalization failed for "${rawUrl}": ${errorMsg}`);
-	}
-
-	// Test validation with detailed logging
-	console.log('🔍 About to validate URL...');
-	if (!isValidNormalizedUrl(url)) {
-		console.log(`❌ VALIDATION FAILED for: "${url}"`);
-		
-		// Try to give more specific error info
-		try {
-			const urlObj = new URL(url);
-			const errorDetails = `URL validation failed for "${url}". Protocol: ${urlObj.protocol}, Hostname: "${urlObj.hostname}", Original: "${rawUrl}"`;
-			console.log(`❌ ${errorDetails}`);
-			throw new NodeOperationError(context.getNode(), errorDetails);
-		} catch (urlError) {
-			const fallbackError = `Invalid URL format: "${url}" (normalized from "${rawUrl}"). URL constructor error: ${urlError}`;
-			console.log(`❌ ${fallbackError}`);
-			throw new NodeOperationError(context.getNode(), fallbackError);
-		}
-	}
-
-	console.log(`✅ VALIDATION SUCCESS: "${url}"`);
-
 	const results: INodeExecutionData[] = [];
 
 	if (strategy === 'both') {
-		const desktopResult = await makePageSpeedRequest(context, apiKey, url, 'desktop', categories, additionalFields);
-		const mobileResult = await makePageSpeedRequest(context, apiKey, url, 'mobile', categories, additionalFields);
+		const desktopResult = await makePageSpeedRequest(context, apiKey, finalUrl, 'desktop', categories, additionalFields);
+		const mobileResult = await makePageSpeedRequest(context, apiKey, finalUrl, 'mobile', categories, additionalFields);
 
 		results.push({
 			json: {
-				url,
+				url: finalUrl,
 				originalUrl: rawUrl,
 				strategy: 'both',
 				desktop: formatResponse(desktopResult, (additionalFields as any)?.outputFormat || 'complete'),
@@ -682,11 +479,11 @@ async function analyzeSingleUrl(
 			},
 		});
 	} else {
-		const result = await makePageSpeedRequest(context, apiKey, url, strategy, categories, additionalFields);
+		const result = await makePageSpeedRequest(context, apiKey, finalUrl, strategy, categories, additionalFields);
 
 		results.push({
 			json: {
-				url,
+				url: finalUrl,
 				originalUrl: rawUrl,
 				strategy,
 				...formatResponse(result, (additionalFields as any)?.outputFormat || 'complete'),
@@ -707,25 +504,15 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 	const results: INodeExecutionData[] = [];
 	const maxConcurrent = 3;
 
-	const urlPairs: { original: string; normalized: string; error?: string }[] = rawUrls.map(rawUrl => {
+	const urlPairs: { original: string; fixed: string; error?: string }[] = rawUrls.map(rawUrl => {
 		try {
-			const normalized = normalizeUrl(rawUrl);
-			if (!isValidNormalizedUrl(normalized)) {
-				return {
-					original: rawUrl,
-					normalized: rawUrl,
-					error: 'Invalid URL format after normalization'
-				};
-			}
-			return {
-				original: rawUrl,
-				normalized: normalized
-			};
+			const fixed = fixUrl(rawUrl);
+			return { original: rawUrl, fixed: fixed };
 		} catch (error) {
 			return {
 				original: rawUrl,
-				normalized: rawUrl,
-				error: error instanceof Error ? error.message : 'URL normalization failed'
+				fixed: rawUrl,
+				error: error instanceof Error ? error.message : 'URL processing failed'
 			};
 		}
 	});
@@ -733,12 +520,12 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 	for (let i = 0; i < urlPairs.length; i += maxConcurrent) {
 		const batch = urlPairs.slice(i, i + maxConcurrent);
 		const batchPromises = batch.map(async (urlPair) => {
-			const { original, normalized, error } = urlPair;
+			const { original, fixed, error } = urlPair;
 			
 			try {
 				if (error) {
 					return {
-						url: normalized,
+						url: fixed,
 						originalUrl: original,
 						error: error,
 						analysisTime: new Date().toISOString(),
@@ -747,12 +534,12 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 
 				if (strategy === 'both') {
 					const [desktopResult, mobileResult] = await Promise.all([
-						makePageSpeedRequest(context, apiKey, normalized, 'desktop', categories, additionalFields),
-						makePageSpeedRequest(context, apiKey, normalized, 'mobile', categories, additionalFields),
+						makePageSpeedRequest(context, apiKey, fixed, 'desktop', categories, additionalFields),
+						makePageSpeedRequest(context, apiKey, fixed, 'mobile', categories, additionalFields),
 					]);
 
 					return {
-						url: normalized,
+						url: fixed,
 						originalUrl: original,
 						strategy: 'both',
 						desktop: formatResponse(desktopResult, (additionalFields as any)?.outputFormat || 'complete'),
@@ -760,9 +547,9 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 						analysisTime: new Date().toISOString(),
 					};
 				} else {
-					const result = await makePageSpeedRequest(context, apiKey, normalized, strategy, categories, additionalFields);
+					const result = await makePageSpeedRequest(context, apiKey, fixed, strategy, categories, additionalFields);
 					return {
-						url: normalized,
+						url: fixed,
 						originalUrl: original,
 						strategy,
 						...formatResponse(result, (additionalFields as any)?.outputFormat || 'complete'),
@@ -772,7 +559,7 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 				return {
-					url: normalized,
+					url: fixed,
 					originalUrl: original,
 					error: errorMessage,
 					analysisTime: new Date().toISOString(),
@@ -802,19 +589,15 @@ async function analyzeSitemap(context: IExecuteFunctions, apiKey: string): Promi
 
 	let sitemapUrl: string;
 	try {
-		sitemapUrl = normalizeUrl(rawSitemapUrl);
+		sitemapUrl = fixUrl(rawSitemapUrl);
 	} catch (error) {
-		throw new NodeOperationError(context.getNode(), `Sitemap URL normalization failed: ${error instanceof Error ? error.message : 'Invalid URL'}`);
-	}
-
-	if (!isValidNormalizedUrl(sitemapUrl)) {
-		throw new NodeOperationError(context.getNode(), `Invalid sitemap URL format: ${sitemapUrl}`);
+		throw new NodeOperationError(context.getNode(), `Invalid sitemap URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
 	}
 
 	const urls = await fetchSitemapUrls(context, sitemapUrl, urlFilters);
 
 	if (urls.length === 0) {
-		throw new NodeOperationError(context.getNode(), 'No URLs found in sitemap or all URLs filtered out');
+		throw new NodeOperationError(context.getNode(), 'No URLs found in sitemap');
 	}
 
 	const results: INodeExecutionData[] = [];
@@ -903,18 +686,12 @@ async function fetchSitemapUrls(context: IExecuteFunctions, sitemapUrl: string, 
 function parseSitemapXml(xmlContent: string, filters: UrlFilters): string[] {
 	try {
 		const urlMatches = xmlContent.match(/<loc>(.*?)<\/loc>/g);
-
-		if (!urlMatches) {
-			return [];
-		}
+		if (!urlMatches) return [];
 
 		const urls = urlMatches.map((match: string) => match.replace(/<\/?loc>/g, '').trim());
-		const filteredUrls = applyUrlFilters(urls, filters);
-
-		return filteredUrls;
+		return applyUrlFilters(urls, filters);
 	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : 'Failed to parse XML';
-		throw new Error(`Failed to parse sitemap XML: ${errorMessage}`);
+		throw new Error(`Failed to parse sitemap XML: ${error instanceof Error ? error.message : 'Unknown error'}`);
 	}
 }
 
@@ -923,52 +700,34 @@ function applyUrlFilters(urls: string[], filters: UrlFilters): string[] {
 
 	for (const rawUrl of urls) {
 		try {
-			const normalizedUrl = normalizeUrl(rawUrl);
-			if (isValidNormalizedUrl(normalizedUrl)) {
-				filteredUrls.push(normalizedUrl);
-			}
+			const fixedUrl = fixUrl(rawUrl);
+			filteredUrls.push(fixedUrl);
 		} catch (error) {
 			continue;
 		}
 	}
 
 	if (filters.includePattern) {
-		const includePatterns: string[] = filters.includePattern
-			.split(',')
-			.map((p: string) => p.trim())
-			.filter((p: string) => p.length > 0);
-
-		filteredUrls = filteredUrls.filter((url: string) =>
-			includePatterns.some((pattern: string) => url.includes(pattern)),
-		);
+		const includePatterns = filters.includePattern.split(',').map(p => p.trim()).filter(p => p.length > 0);
+		filteredUrls = filteredUrls.filter(url => includePatterns.some(pattern => url.includes(pattern)));
 	}
 
 	if (filters.excludePattern) {
-		const excludePatterns: string[] = filters.excludePattern
-			.split(',')
-			.map((p: string) => p.trim())
-			.filter((p: string) => p.length > 0);
-
-		filteredUrls = filteredUrls.filter(
-			(url: string) => !excludePatterns.some((pattern: string) => url.includes(pattern)),
-		);
+		const excludePatterns = filters.excludePattern.split(',').map(p => p.trim()).filter(p => p.length > 0);
+		filteredUrls = filteredUrls.filter(url => !excludePatterns.some(pattern => url.includes(pattern)));
 	}
 
 	if (filters.urlType && filters.urlType !== 'all') {
 		if (filters.urlType === 'pages') {
-			filteredUrls = filteredUrls.filter(
-				(url: string) => !url.includes('/blog/') && !url.includes('/post/'),
-			);
+			filteredUrls = filteredUrls.filter(url => !url.includes('/blog/') && !url.includes('/post/'));
 		} else if (filters.urlType === 'posts') {
-			filteredUrls = filteredUrls.filter(
-				(url: string) => url.includes('/blog/') || url.includes('/post/'),
-			);
+			filteredUrls = filteredUrls.filter(url => url.includes('/blog/') || url.includes('/post/'));
 		}
 	}
 
 	filteredUrls = filteredUrls.filter(url => !isLikelyXmlUrl(url));
 
-	const maxUrls: number = filters.maxUrls || 50;
+	const maxUrls = filters.maxUrls || 50;
 	if (filteredUrls.length > maxUrls) {
 		filteredUrls = filteredUrls.slice(0, maxUrls);
 	}
@@ -988,7 +747,6 @@ async function makePageSpeedRequest(
 	
 	if (!skipValidation) {
 		const validation = await validateUrlContentType(context, url);
-		
 		if (!validation.isValid) {
 			return {
 				error: true,
@@ -1034,13 +792,12 @@ async function makePageSpeedRequest(
 			return {
 				error: true,
 				errorType: 'NOT_HTML',
-				errorMessage: 'URL does not return HTML content (returns XML, JSON, or other format)',
+				errorMessage: 'URL does not return HTML content',
 				url: url,
 				strategy: strategy,
 				analysisTime: new Date().toISOString(),
 			};
 		}
-		
 		throw error;
 	}
 }
@@ -1091,7 +848,7 @@ function formatResponse(response: any, outputFormat: string): any {
 
 function extractAuditDetails(audits: any): any {
 	const auditDetails: any = {};
-	const keyAudits: string[] = [
+	const keyAudits = [
 		'first-contentful-paint',
 		'largest-contentful-paint',
 		'speed-index',
@@ -1100,7 +857,7 @@ function extractAuditDetails(audits: any): any {
 		'server-response-time',
 	];
 
-	keyAudits.forEach((auditId: string) => {
+	keyAudits.forEach((auditId) => {
 		if (audits[auditId]) {
 			auditDetails[auditId] = {
 				score: audits[auditId].score,
