@@ -71,8 +71,8 @@ export class GooglePageSpeed implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				placeholder: 'https://example.com',
-				description: 'The URL of the website to analyze',
+				placeholder: 'https://example.com or {{ $json["URL To be Analized"] }}',
+				description: 'The URL of the website to analyze. Can be a direct URL or use expressions like {{ $json["URL To be Analized"] }}',
 				displayOptions: {
 					show: {
 						operation: ['analyzeSingle'],
@@ -310,47 +310,55 @@ export class GooglePageSpeed implements INodeType {
 	}
 }
 
-// Function to normalize and clean URLs provided by users
+// Enhanced function to normalize and clean URLs provided by users
 function normalizeUrl(inputUrl: string): string {
 	if (!inputUrl || typeof inputUrl !== 'string') {
 		throw new Error('URL is required and must be a string');
 	}
 
-	// Remove leading/trailing whitespace
+	// Remove leading/trailing whitespace and problematic characters
 	let url = inputUrl.trim();
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty');
 	}
 
-	// Remove leading slashes, dots, or spaces
+	// Remove leading slashes, dots, or spaces that users might accidentally add
 	url = url.replace(/^[\/\s\.]+/, '');
+	
+	// Remove any remaining whitespace
+	url = url.trim();
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty after cleaning');
 	}
 
-	// Check if URL already has a protocol
-	if (!url.match(/^https?:\/\//i)) {
+	// Simple and reliable protocol detection and addition
+	const hasProtocol = /^https?:\/\//i.test(url);
+	
+	if (!hasProtocol) {
 		// No protocol found, add https://
 		url = 'https://' + url;
 	} else {
-		// Has protocol, ensure it's https
+		// Has protocol, normalize to https
 		url = url.replace(/^http:\/\//i, 'https://');
 	}
+	
+	// Additional cleanup - remove any double slashes after protocol
+	url = url.replace(/^(https:\/\/)\/+/, '$1');
 	
 	try {
 		// Create URL object to validate and clean
 		const urlObj = new URL(url);
 		
 		// Basic hostname validation
-		if (!urlObj.hostname || urlObj.hostname.length < 3) {
+		if (!urlObj.hostname || urlObj.hostname.length < 1) {
 			throw new Error('Invalid hostname');
 		}
 		
-		// Must contain at least one dot for domain.tld
-		if (!urlObj.hostname.includes('.')) {
-			throw new Error('Invalid domain format - must include TLD');
+		// Must contain at least one dot for domain.tld (unless localhost for testing)
+		if (!urlObj.hostname.includes('.') && !urlObj.hostname.toLowerCase().includes('localhost')) {
+			throw new Error('Invalid domain format - must include TLD (like .com, .org, etc.)');
 		}
 		
 		// Clean up pathname - remove trailing slash if it's just root
@@ -358,7 +366,7 @@ function normalizeUrl(inputUrl: string): string {
 			urlObj.pathname = '';
 		}
 		
-		// Remove common tracking parameters
+		// Remove common tracking parameters that might interfere with PageSpeed
 		const paramsToRemove = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'];
 		paramsToRemove.forEach(param => {
 			urlObj.searchParams.delete(param);
@@ -375,11 +383,11 @@ function normalizeUrl(inputUrl: string): string {
 		return cleanUrl;
 		
 	} catch (error) {
-		throw new Error(`Could not parse URL: "${inputUrl}". Please provide a valid domain like "example.com"`);
+		throw new Error(`Could not parse URL: "${inputUrl}". Please provide a valid domain like "example.com" or "https://example.com"`);
 	}
 }
 
-// Function to validate normalized URLs
+// Enhanced function to validate normalized URLs - less strict
 function isValidNormalizedUrl(url: string): boolean {
 	try {
 		const urlObj = new URL(url);
@@ -390,18 +398,18 @@ function isValidNormalizedUrl(url: string): boolean {
 		}
 		
 		// Must have a hostname
-		if (!urlObj.hostname || urlObj.hostname.length < 3) {
+		if (!urlObj.hostname || urlObj.hostname.length < 1) {
 			return false;
 		}
 		
-		// Must have a TLD (contain a dot)
-		if (!urlObj.hostname.includes('.')) {
+		// Must have a TLD (contain a dot) OR be localhost for testing
+		if (!urlObj.hostname.includes('.') && !urlObj.hostname.toLowerCase().includes('localhost')) {
 			return false;
 		}
 		
-		// Block only localhost/IP addresses - remove overly strict domain blocking
-		const blockedDomains = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
-		if (blockedDomains.includes(urlObj.hostname.toLowerCase())) {
+		// Block only localhost/IP addresses for production, but allow for testing
+		const blockedInProduction = ['127.0.0.1', '0.0.0.0', '::1'];
+		if (blockedInProduction.includes(urlObj.hostname.toLowerCase())) {
 			return false;
 		}
 		
@@ -520,12 +528,42 @@ async function validateUrlContentType(context: IExecuteFunctions, url: string): 
 	}
 }
 
+// Enhanced function to get URL from either direct input or dynamic data
+function getUrlFromInput(context: IExecuteFunctions, itemIndex: number): string {
+	// Get URL from parameter (which could be an expression like {{ $json['URL To be Analized'] }})
+	let rawUrl = context.getNodeParameter('url', itemIndex) as string;
+	
+	// If rawUrl is still an expression or empty, try to get from input data directly
+	if (!rawUrl || rawUrl.includes('{{') || rawUrl.includes('$json') || rawUrl.trim().length === 0) {
+		const inputData = context.getInputData();
+		if (inputData[itemIndex] && inputData[itemIndex].json) {
+			const jsonData = inputData[itemIndex].json as any;
+			// Try common field names for URLs
+			rawUrl = jsonData['URL To be Analized'] || 
+			         jsonData['url'] || 
+			         jsonData['URL'] || 
+			         jsonData['website'] || 
+			         jsonData['link'] || 
+			         jsonData['domain'] ||
+			         rawUrl; // fallback to original
+		}
+	}
+	
+	return rawUrl;
+}
+
 async function analyzeSingleUrl(
 	context: IExecuteFunctions,
 	apiKey: string,
 	itemIndex: number,
 ): Promise<INodeExecutionData[]> {
-	const rawUrl = context.getNodeParameter('url', itemIndex) as string;
+	// Get URL from either direct input or dynamic data
+	const rawUrl = getUrlFromInput(context, itemIndex);
+	
+	if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.trim().length === 0) {
+		throw new NodeOperationError(context.getNode(), 'No valid URL found. Please provide a URL in the field or ensure your JSON data contains a URL field like "URL To be Analized", "url", or "website".');
+	}
+
 	const strategy = context.getNodeParameter('strategy', itemIndex) as string;
 	const categories = context.getNodeParameter('categories', itemIndex) as string[];
 	const additionalFields = context.getNodeParameter('additionalFields', itemIndex);
@@ -534,9 +572,7 @@ async function analyzeSingleUrl(
 	let url: string;
 	try {
 		url = normalizeUrl(rawUrl);
-		// --- START OF ADDITION FOR DEBUGGING ---
-		console.log(`Normalized URL: "${rawUrl}" -> "${url}"`); 
-		// --- END OF ADDITION FOR DEBUGGING ---
+		console.log(`✅ Successfully normalized: "${rawUrl}" -> "${url}"`);
 	} catch (error) {
 		throw new NodeOperationError(context.getNode(), `URL normalization failed for "${rawUrl}": ${error instanceof Error ? error.message : 'Invalid URL'}`);
 	}
@@ -545,11 +581,13 @@ async function analyzeSingleUrl(
 		// More specific error message for debugging
 		try {
 			const urlObj = new URL(url);
-			throw new NodeOperationError(context.getNode(), `URL validation failed for "${url}". Protocol: ${urlObj.protocol}, Hostname: ${urlObj.hostname}, Original: "${rawUrl}"`);
+			throw new NodeOperationError(context.getNode(), `❌ URL validation failed for "${url}". Protocol: ${urlObj.protocol}, Hostname: "${urlObj.hostname}", Length: ${urlObj.hostname.length}, Has dot: ${urlObj.hostname.includes('.')}, Original: "${rawUrl}"`);
 		} catch {
-			throw new NodeOperationError(context.getNode(), `Invalid URL format: "${url}" (normalized from "${rawUrl}")`);
+			throw new NodeOperationError(context.getNode(), `❌ Invalid URL format: "${url}" (normalized from "${rawUrl}")`);
 		}
 	}
+
+	console.log(`✅ URL validation passed for: "${url}"`);
 
 	const results: INodeExecutionData[] = [];
 
