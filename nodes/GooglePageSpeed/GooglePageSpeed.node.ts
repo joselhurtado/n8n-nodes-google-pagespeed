@@ -18,7 +18,8 @@ export class GooglePageSpeed implements INodeType {
 		group: ['analyze'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["url"]}}',
-		description: 'Analyze website performance, accessibility, and SEO using Google PageSpeed Insights',
+		description:
+			'Analyze website performance, accessibility, and SEO using Google PageSpeed Insights',
 		defaults: {
 			name: 'Google PageSpeed',
 		},
@@ -48,6 +49,12 @@ export class GooglePageSpeed implements INodeType {
 						value: 'analyzeMultiple',
 						description: 'Analyze multiple website URLs in batch',
 						action: 'Analyze multiple website URLs in batch',
+					},
+					{
+						name: 'Analyze Sitemap', // New Feature 1.1.0
+						value: 'analyzeSitemap',
+						description: 'Automatically analyze all URLs from a website sitemap',
+						action: 'Analyze all URLs from a website sitemap',
 					},
 				],
 				default: 'analyzeSingle',
@@ -82,6 +89,70 @@ export class GooglePageSpeed implements INodeType {
 						operation: ['analyzeMultiple'],
 					},
 				},
+			},
+			{
+				displayName: 'Sitemap URL',
+				name: 'sitemapUrl',
+				type: 'string',
+				required: true,
+				default: '',
+				placeholder: 'https://example.com/sitemap.xml',
+				description: 'URL of the XML sitemap to analyze',
+				displayOptions: {
+					show: {
+						operation: ['analyzeSitemap'],
+					},
+				},
+			},
+			{
+				displayName: 'URL Filters',
+				name: 'urlFilters',
+				type: 'collection',
+				placeholder: 'Add Filter',
+				default: {},
+				description: 'Optional filters to limit which URLs are analyzed',
+				displayOptions: {
+					show: {
+						operation: ['analyzeSitemap'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Include Pattern',
+						name: 'includePattern',
+						type: 'string',
+						default: '',
+						placeholder: '/blog/, /products/',
+						description: 'Only analyze URLs containing these patterns (comma-separated)',
+					},
+					{
+						displayName: 'Exclude Pattern',
+						name: 'excludePattern',
+						type: 'string',
+						default: '',
+						placeholder: '/admin/, /api/',
+						description: 'Skip URLs containing these patterns (comma-separated)',
+					},
+					{
+						displayName: 'Max URLs',
+						name: 'maxUrls',
+						type: 'number',
+						default: 50,
+						description: 'Maximum number of URLs to analyze (to avoid quota issues)',
+					},
+					{
+						displayName: 'URL Type',
+						name: 'urlType',
+						type: 'options',
+						options: [
+							{ name: 'All URLs', value: 'all' },
+							{ name: 'Pages Only', value: 'pages' },
+							{ name: 'Posts Only', value: 'posts' },
+						],
+						default: 'all',
+						description: 'Type of URLs to analyze',
+					},
+				],
 			},
 			{
 				displayName: 'Strategy',
@@ -198,8 +269,10 @@ export class GooglePageSpeed implements INodeType {
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const operation = this.getNodeParameter('operation', 0) as string;
-		const credentials = await this.getCredentials('googlePageSpeedApi') as ICredentialDataDecryptedObject;
-		
+		const credentials = (await this.getCredentials(
+			'googlePageSpeedApi',
+		)) as ICredentialDataDecryptedObject;
+
 		if (!credentials.apiKey) {
 			throw new NodeOperationError(this.getNode(), 'No API key found in credentials');
 		}
@@ -216,14 +289,21 @@ export class GooglePageSpeed implements INodeType {
 			}
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			throw new NodeOperationError(this.getNode(), `PageSpeed Insights analysis failed: ${errorMessage}`);
+			throw new NodeOperationError(
+				this.getNode(),
+				`PageSpeed Insights analysis failed: ${errorMessage}`,
+			);
 		}
 
 		return [results];
 	}
 }
 
-async function analyzeSingleUrl(context: IExecuteFunctions, apiKey: string, itemIndex: number): Promise<INodeExecutionData[]> {
+async function analyzeSingleUrl(
+	context: IExecuteFunctions,
+	apiKey: string,
+	itemIndex: number,
+): Promise<INodeExecutionData[]> {
 	const url = context.getNodeParameter('url', itemIndex) as string;
 	const strategy = context.getNodeParameter('strategy', itemIndex) as string;
 	const categories = context.getNodeParameter('categories', itemIndex) as string[];
@@ -236,9 +316,23 @@ async function analyzeSingleUrl(context: IExecuteFunctions, apiKey: string, item
 	const results: INodeExecutionData[] = [];
 
 	if (strategy === 'both') {
-		const desktopResult = await makePageSpeedRequest(context, apiKey, url, 'desktop', categories, additionalFields);
-		const mobileResult = await makePageSpeedRequest(context, apiKey, url, 'mobile', categories, additionalFields);
-		
+		const desktopResult = await makePageSpeedRequest(
+			context,
+			apiKey,
+			url,
+			'desktop',
+			categories,
+			additionalFields,
+		);
+		const mobileResult = await makePageSpeedRequest(
+			context,
+			apiKey,
+			url,
+			'mobile',
+			categories,
+			additionalFields,
+		);
+
 		results.push({
 			json: {
 				url,
@@ -249,8 +343,15 @@ async function analyzeSingleUrl(context: IExecuteFunctions, apiKey: string, item
 			},
 		});
 	} else {
-		const result = await makePageSpeedRequest(context, apiKey, url, strategy, categories, additionalFields);
-		
+		const result = await makePageSpeedRequest(
+			context,
+			apiKey,
+			url,
+			strategy,
+			categories,
+			additionalFields,
+		);
+
 		results.push({
 			json: {
 				url,
@@ -264,7 +365,10 @@ async function analyzeSingleUrl(context: IExecuteFunctions, apiKey: string, item
 	return results;
 }
 
-async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): Promise<INodeExecutionData[]> {
+async function analyzeMultipleUrls(
+	context: IExecuteFunctions,
+	apiKey: string,
+): Promise<INodeExecutionData[]> {
 	const urls = context.getNodeParameter('urls', 0) as string[];
 	const strategy = context.getNodeParameter('strategy', 0) as string;
 	const categories = context.getNodeParameter('categories', 0) as string[];
@@ -299,7 +403,14 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 						analysisTime: new Date().toISOString(),
 					};
 				} else {
-					const result = await makePageSpeedRequest(context, apiKey, url, strategy, categories, additionalFields);
+					const result = await makePageSpeedRequest(
+						context,
+						apiKey,
+						url,
+						strategy,
+						categories,
+						additionalFields,
+					);
 					return {
 						url,
 						strategy,
@@ -318,7 +429,7 @@ async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): 
 		});
 
 		const batchResults = await Promise.all(batchPromises);
-		batchResults.forEach(result => {
+		batchResults.forEach((result) => {
 			results.push({ json: result });
 		});
 
@@ -344,7 +455,7 @@ async function makePageSpeedRequest(
 		key: apiKey,
 	});
 
-	categories.forEach(category => {
+	categories.forEach((category) => {
 		params.append('category', category);
 	});
 
@@ -412,7 +523,7 @@ function extractAuditDetails(audits: any): any {
 		'server-response-time',
 	];
 
-	keyAudits.forEach(auditId => {
+	keyAudits.forEach((auditId) => {
 		if (audits[auditId]) {
 			auditDetails[auditId] = {
 				score: audits[auditId].score,
@@ -436,5 +547,5 @@ function isValidUrl(url: string): boolean {
 }
 
 function delay(ms: number): Promise<void> {
-	return new Promise(resolve => setTimeout(resolve, ms));
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
