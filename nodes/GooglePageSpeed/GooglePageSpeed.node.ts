@@ -10,6 +10,13 @@ import {
 	NodeConnectionType,
 } from 'n8n-workflow';
 
+interface UrlFilters {
+	includePattern?: string;
+	excludePattern?: string;
+	maxUrls?: number;
+	urlType?: string;
+}
+
 export class GooglePageSpeed implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Google PageSpeed Insights',
@@ -18,8 +25,7 @@ export class GooglePageSpeed implements INodeType {
 		group: ['analyze'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["url"]}}',
-		description:
-			'Analyze website performance, accessibility, and SEO using Google PageSpeed Insights',
+		description: 'Analyze website performance, accessibility, and SEO using Google PageSpeed Insights',
 		defaults: {
 			name: 'Google PageSpeed',
 		},
@@ -51,7 +57,7 @@ export class GooglePageSpeed implements INodeType {
 						action: 'Analyze multiple website URLs in batch',
 					},
 					{
-						name: 'Analyze Sitemap', // New Feature 1.1.0
+						name: 'Analyze Sitemap',
 						value: 'analyzeSitemap',
 						description: 'Automatically analyze all URLs from a website sitemap',
 						action: 'Analyze all URLs from a website sitemap',
@@ -269,9 +275,7 @@ export class GooglePageSpeed implements INodeType {
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const operation = this.getNodeParameter('operation', 0) as string;
-		const credentials = (await this.getCredentials(
-			'googlePageSpeedApi',
-		)) as ICredentialDataDecryptedObject;
+		const credentials = (await this.getCredentials('googlePageSpeedApi')) as ICredentialDataDecryptedObject;
 
 		if (!credentials.apiKey) {
 			throw new NodeOperationError(this.getNode(), 'No API key found in credentials');
@@ -286,13 +290,13 @@ export class GooglePageSpeed implements INodeType {
 			} else if (operation === 'analyzeMultiple') {
 				const result = await analyzeMultipleUrls(this, credentials.apiKey as string);
 				results.push(...result);
+			} else if (operation === 'analyzeSitemap') {
+				const result = await analyzeSitemap(this, credentials.apiKey as string);
+				results.push(...result);
 			}
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			throw new NodeOperationError(
-				this.getNode(),
-				`PageSpeed Insights analysis failed: ${errorMessage}`,
-			);
+			throw new NodeOperationError(this.getNode(), `PageSpeed Insights analysis failed: ${errorMessage}`);
 		}
 
 		return [results];
@@ -307,7 +311,7 @@ async function analyzeSingleUrl(
 	const url = context.getNodeParameter('url', itemIndex) as string;
 	const strategy = context.getNodeParameter('strategy', itemIndex) as string;
 	const categories = context.getNodeParameter('categories', itemIndex) as string[];
-	const additionalFields = context.getNodeParameter('additionalFields', itemIndex) as any;
+	const additionalFields = context.getNodeParameter('additionalFields', itemIndex);
 
 	if (!isValidUrl(url)) {
 		throw new NodeOperationError(context.getNode(), `Invalid URL format: ${url}`);
@@ -337,26 +341,19 @@ async function analyzeSingleUrl(
 			json: {
 				url,
 				strategy: 'both',
-				desktop: formatResponse(desktopResult, additionalFields.outputFormat || 'complete'),
-				mobile: formatResponse(mobileResult, additionalFields.outputFormat || 'complete'),
+				desktop: formatResponse(desktopResult, (additionalFields as any)?.outputFormat || 'complete'),
+				mobile: formatResponse(mobileResult, (additionalFields as any)?.outputFormat || 'complete'),
 				analysisTime: new Date().toISOString(),
 			},
 		});
 	} else {
-		const result = await makePageSpeedRequest(
-			context,
-			apiKey,
-			url,
-			strategy,
-			categories,
-			additionalFields,
-		);
+		const result = await makePageSpeedRequest(context, apiKey, url, strategy, categories, additionalFields);
 
 		results.push({
 			json: {
 				url,
 				strategy,
-				...formatResponse(result, additionalFields.outputFormat || 'complete'),
+				...formatResponse(result, (additionalFields as any)?.outputFormat || 'complete'),
 				analysisTime: new Date().toISOString(),
 			},
 		});
@@ -365,21 +362,18 @@ async function analyzeSingleUrl(
 	return results;
 }
 
-async function analyzeMultipleUrls(
-	context: IExecuteFunctions,
-	apiKey: string,
-): Promise<INodeExecutionData[]> {
+async function analyzeMultipleUrls(context: IExecuteFunctions, apiKey: string): Promise<INodeExecutionData[]> {
 	const urls = context.getNodeParameter('urls', 0) as string[];
 	const strategy = context.getNodeParameter('strategy', 0) as string;
 	const categories = context.getNodeParameter('categories', 0) as string[];
-	const additionalFields = context.getNodeParameter('additionalFields', 0) as any;
+	const additionalFields = context.getNodeParameter('additionalFields', 0);
 
 	const results: INodeExecutionData[] = [];
 	const maxConcurrent = 3;
 
 	for (let i = 0; i < urls.length; i += maxConcurrent) {
 		const batch = urls.slice(i, i + maxConcurrent);
-		const batchPromises = batch.map(async (url) => {
+		const batchPromises = batch.map(async (url: string) => {
 			try {
 				if (!isValidUrl(url)) {
 					return {
@@ -398,23 +392,16 @@ async function analyzeMultipleUrls(
 					return {
 						url,
 						strategy: 'both',
-						desktop: formatResponse(desktopResult, additionalFields.outputFormat || 'complete'),
-						mobile: formatResponse(mobileResult, additionalFields.outputFormat || 'complete'),
+						desktop: formatResponse(desktopResult, (additionalFields as any)?.outputFormat || 'complete'),
+						mobile: formatResponse(mobileResult, (additionalFields as any)?.outputFormat || 'complete'),
 						analysisTime: new Date().toISOString(),
 					};
 				} else {
-					const result = await makePageSpeedRequest(
-						context,
-						apiKey,
-						url,
-						strategy,
-						categories,
-						additionalFields,
-					);
+					const result = await makePageSpeedRequest(context, apiKey, url, strategy, categories, additionalFields);
 					return {
 						url,
 						strategy,
-						...formatResponse(result, additionalFields.outputFormat || 'complete'),
+						...formatResponse(result, (additionalFields as any)?.outputFormat || 'complete'),
 						analysisTime: new Date().toISOString(),
 					};
 				}
@@ -441,6 +428,183 @@ async function analyzeMultipleUrls(
 	return results;
 }
 
+async function analyzeSitemap(context: IExecuteFunctions, apiKey: string): Promise<INodeExecutionData[]> {
+	const sitemapUrl = context.getNodeParameter('sitemapUrl', 0) as string;
+	const strategy = context.getNodeParameter('strategy', 0) as string;
+	const categories = context.getNodeParameter('categories', 0) as string[];
+	const additionalFields = context.getNodeParameter('additionalFields', 0);
+	const urlFilters = context.getNodeParameter('urlFilters', 0) as UrlFilters;
+
+	// Validate sitemap URL
+	if (!isValidUrl(sitemapUrl)) {
+		throw new NodeOperationError(context.getNode(), `Invalid sitemap URL format: ${sitemapUrl}`);
+	}
+
+	// Fetch and parse sitemap
+	const urls = await fetchSitemapUrls(context, sitemapUrl, urlFilters);
+
+	if (urls.length === 0) {
+		throw new NodeOperationError(context.getNode(), 'No URLs found in sitemap or all URLs filtered out');
+	}
+
+	const results: INodeExecutionData[] = [];
+	const maxConcurrent = 3;
+
+	// Add sitemap metadata to results
+	results.push({
+		json: {
+			sitemapUrl,
+			totalUrlsFound: urls.length,
+			urlsToAnalyze: Math.min(urls.length, urlFilters.maxUrls || 50),
+			filters: urlFilters,
+			analysisTime: new Date().toISOString(),
+			type: 'sitemap-metadata',
+		},
+	});
+
+	// Process URLs in batches
+	for (let i = 0; i < urls.length; i += maxConcurrent) {
+		const batch = urls.slice(i, i + maxConcurrent);
+		const batchPromises = batch.map(async (url: string) => {
+			try {
+				if (strategy === 'both') {
+					const [desktopResult, mobileResult] = await Promise.all([
+						makePageSpeedRequest(context, apiKey, url, 'desktop', categories, additionalFields),
+						makePageSpeedRequest(context, apiKey, url, 'mobile', categories, additionalFields),
+					]);
+
+					return {
+						url,
+						strategy: 'both',
+						desktop: formatResponse(desktopResult, (additionalFields as any)?.outputFormat || 'complete'),
+						mobile: formatResponse(mobileResult, (additionalFields as any)?.outputFormat || 'complete'),
+						analysisTime: new Date().toISOString(),
+						source: 'sitemap',
+					};
+				} else {
+					const result = await makePageSpeedRequest(context, apiKey, url, strategy, categories, additionalFields);
+					return {
+						url,
+						strategy,
+						...formatResponse(result, (additionalFields as any)?.outputFormat || 'complete'),
+						analysisTime: new Date().toISOString(),
+						source: 'sitemap',
+					};
+				}
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+				return {
+					url,
+					error: errorMessage,
+					analysisTime: new Date().toISOString(),
+					source: 'sitemap',
+				};
+			}
+		});
+
+		const batchResults = await Promise.all(batchPromises);
+		batchResults.forEach((result) => {
+			results.push({ json: result });
+		});
+
+		// Add delay between batches
+		if (i + maxConcurrent < urls.length) {
+			await delay(1000);
+		}
+	}
+
+	return results;
+}
+
+async function fetchSitemapUrls(context: IExecuteFunctions, sitemapUrl: string, filters: UrlFilters): Promise<string[]> {
+	try {
+		// Fetch sitemap content
+		const response = await context.helpers.request({
+			method: 'GET',
+			url: sitemapUrl,
+			timeout: 30000,
+		});
+
+		// Parse XML sitemap
+		const urls = parseSitemapXml(response, filters);
+
+		return urls;
+	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+		throw new NodeOperationError(context.getNode(), `Failed to fetch sitemap: ${errorMessage}`);
+	}
+}
+
+function parseSitemapXml(xmlContent: string, filters: UrlFilters): string[] {
+	try {
+		// Simple XML parsing for <loc> tags
+		const urlMatches = xmlContent.match(/<loc>(.*?)<\/loc>/g);
+
+		if (!urlMatches) {
+			return [];
+		}
+
+		const urls = urlMatches.map((match: string) => match.replace(/<\/?loc>/g, '').trim());
+
+		// Apply filters
+		const filteredUrls = applyUrlFilters(urls, filters);
+
+		return filteredUrls;
+	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : 'Failed to parse XML';
+		throw new Error(`Failed to parse sitemap XML: ${errorMessage}`);
+	}
+}
+
+function applyUrlFilters(urls: string[], filters: UrlFilters): string[] {
+	let filteredUrls: string[] = [...urls];
+
+	// Include pattern filter
+	if (filters.includePattern) {
+		const includePatterns: string[] = filters.includePattern
+			.split(',')
+			.map((p: string) => p.trim())
+			.filter((p: string) => p.length > 0);
+
+		filteredUrls = filteredUrls.filter((url: string) =>
+			includePatterns.some((pattern: string) => url.includes(pattern)),
+		);
+	}
+
+	// Exclude pattern filter
+	if (filters.excludePattern) {
+		const excludePatterns: string[] = filters.excludePattern
+			.split(',')
+			.map((p: string) => p.trim())
+			.filter((p: string) => p.length > 0);
+
+		filteredUrls = filteredUrls.filter(
+			(url: string) => !excludePatterns.some((pattern: string) => url.includes(pattern)),
+		);
+	}
+
+	// URL type filter
+	if (filters.urlType && filters.urlType !== 'all') {
+		if (filters.urlType === 'pages') {
+			filteredUrls = filteredUrls.filter(
+				(url: string) => !url.includes('/blog/') && !url.includes('/post/'),
+			);
+		} else if (filters.urlType === 'posts') {
+			filteredUrls = filteredUrls.filter(
+				(url: string) => url.includes('/blog/') || url.includes('/post/'),
+			);
+		}
+	}
+
+	// Limit number of URLs
+	const maxUrls: number = filters.maxUrls || 50;
+	if (filteredUrls.length > maxUrls) {
+		filteredUrls = filteredUrls.slice(0, maxUrls);
+	}
+
+	return filteredUrls;
+}
+
 async function makePageSpeedRequest(
 	context: IExecuteFunctions,
 	apiKey: string,
@@ -455,14 +619,14 @@ async function makePageSpeedRequest(
 		key: apiKey,
 	});
 
-	categories.forEach((category) => {
+	categories.forEach((category: string) => {
 		params.append('category', category);
 	});
 
-	if (additionalFields.locale) {
+	if (additionalFields?.locale) {
 		params.set('locale', additionalFields.locale);
 	}
-	if (additionalFields.screenshot) {
+	if (additionalFields?.screenshot) {
 		params.set('screenshot', 'true');
 	}
 
@@ -514,7 +678,7 @@ function formatResponse(response: any, outputFormat: string): any {
 
 function extractAuditDetails(audits: any): any {
 	const auditDetails: any = {};
-	const keyAudits = [
+	const keyAudits: string[] = [
 		'first-contentful-paint',
 		'largest-contentful-paint',
 		'speed-index',
@@ -523,7 +687,7 @@ function extractAuditDetails(audits: any): any {
 		'server-response-time',
 	];
 
-	keyAudits.forEach((auditId) => {
+	keyAudits.forEach((auditId: string) => {
 		if (audits[auditId]) {
 			auditDetails[auditId] = {
 				score: audits[auditId].score,
