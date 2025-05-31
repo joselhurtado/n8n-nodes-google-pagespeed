@@ -40,6 +40,7 @@ npm install n8n-nodes-google-pagespeed
 
 # Restart n8n
 n8n start
+bash```
 
 ### Version History
 - **v1.0.0** - Initial release with core PageSpeed functionality
