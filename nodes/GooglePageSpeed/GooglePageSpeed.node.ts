@@ -316,89 +316,91 @@ function normalizeUrl(inputUrl: string): string {
 		throw new Error('URL is required and must be a string');
 	}
 
-	// Remove leading/trailing whitespace
+	// Remove leading/trailing whitespace and common prefixes
 	let url = inputUrl.trim();
 	
 	if (url.length === 0) {
 		throw new Error('URL cannot be empty');
 	}
 
-	// Convert to lowercase for protocol checking (but preserve original case for domain)
-	const urlLower = url.toLowerCase();
+	// Remove common prefixes that users might add
+	url = url.replace(/^(www\.)?/, '');
+	url = url.replace(/^(http:\/\/)?(www\.)?/, '');
+	url = url.replace(/^(https:\/\/)?(www\.)?/, '');
 	
-	// Add protocol if missing
-	if (!urlLower.startsWith('http://') && !urlLower.startsWith('https://')) {
-		// Default to https for security
-		url = 'https://' + url;
-	}
+	// Remove leading slashes or dots
+	url = url.replace(/^[\/\.]+/, '');
 	
-	// Handle protocol correction (prefer https over http)
-	if (urlLower.startsWith('http://')) {
-		url = url.replace(/^http:\/\//i, 'https://');
+	if (url.length === 0) {
+		throw new Error('URL cannot be empty after cleaning');
 	}
+
+	// Add https protocol
+	url = 'https://' + url;
 	
 	try {
-		// Parse and reconstruct URL to ensure it's valid
+		// Test if URL is valid
 		const urlObj = new URL(url);
+		
+		// Basic validation
+		if (!urlObj.hostname || urlObj.hostname.length < 3) {
+			throw new Error('Invalid hostname');
+		}
+		
+		// Must contain at least one dot for domain.tld
+		if (!urlObj.hostname.includes('.')) {
+			throw new Error('Invalid domain format - must include TLD');
+		}
 		
 		// Remove trailing slash from pathname if it's just "/"
 		if (urlObj.pathname === '/') {
 			urlObj.pathname = '';
 		}
 		
-		// Remove common tracking parameters that might interfere
+		// Remove common tracking parameters
 		const paramsToRemove = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'fbclid', 'gclid'];
 		paramsToRemove.forEach(param => {
 			urlObj.searchParams.delete(param);
 		});
 		
-		// Reconstruct the URL
-		let normalizedUrl = urlObj.toString();
+		// Get clean URL
+		let cleanUrl = urlObj.toString();
 		
-		// Remove trailing slash if present
-		if (normalizedUrl.endsWith('/') && normalizedUrl !== urlObj.origin + '/') {
-			normalizedUrl = normalizedUrl.slice(0, -1);
+		// Remove trailing slash if present (except for root)
+		if (cleanUrl.endsWith('/') && cleanUrl !== urlObj.origin + '/') {
+			cleanUrl = cleanUrl.slice(0, -1);
 		}
 		
-		return normalizedUrl;
+		return cleanUrl;
 		
 	} catch (error) {
-		throw new Error(`Invalid URL format: ${inputUrl}. Please provide a valid URL like 'example.com' or 'https://example.com'`);
+		throw new Error(`Invalid URL: "${inputUrl}". Please provide a valid domain like "example.com" or "https://example.com"`);
 	}
 }
 
-// NEW: Enhanced function to validate normalized URLs
+// NEW: Simplified URL validation
 function isValidNormalizedUrl(url: string): boolean {
 	try {
 		const urlObj = new URL(url);
 		
-		// Must be http or https
-		if (!['http:', 'https:'].includes(urlObj.protocol)) {
+		// Must be https (we normalize everything to https)
+		if (urlObj.protocol !== 'https:') {
 			return false;
 		}
 		
-		// Must have a valid hostname
-		if (!urlObj.hostname || urlObj.hostname.length === 0) {
+		// Must have a hostname
+		if (!urlObj.hostname || urlObj.hostname.length < 3) {
 			return false;
 		}
 		
-		// Must have at least one dot in hostname (for domain.tld)
+		// Must have a TLD (contain a dot)
 		if (!urlObj.hostname.includes('.')) {
 			return false;
 		}
 		
-		// Check for obviously invalid hostnames
-		const invalidPatterns = [
-			'localhost',
-			'127.0.0.1',
-			'0.0.0.0',
-			'example.com',
-			'test.com',
-			'demo.com'
-		];
-		
-		const hostname = urlObj.hostname.toLowerCase();
-		if (invalidPatterns.includes(hostname)) {
+		// Block obvious test/local domains
+		const blockedDomains = ['localhost', '127.0.0.1', '0.0.0.0', 'example.com', 'test.com', 'demo.com', 'sample.com'];
+		if (blockedDomains.includes(urlObj.hostname.toLowerCase())) {
 			return false;
 		}
 		

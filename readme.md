@@ -43,7 +43,8 @@ n8n start
 ```
 
 ### Version History
-- **v1.0.0** - Initial release with core PageSpeed functionality
-- **v1.1.0** - ✅ **Sitemap Integration** - Automated website analysis
-- **v1.2.0** - Planned: Historical data and trending features
-- **v1.3.0** - Planned: Performance budgets and alerts
+- **v1.1.0** - Initial release with core PageSpeed functionality
+- **v1.2.0** - Initial release with core PageSpeed functionality
+- **v1.3.0** - ✅ **Sitemap Integration** - Automated website analysis
+- **v1.4.0** - Planned: Historical data and trending features
+- **v1.5.0** - Planned: Performance budgets and alerts
