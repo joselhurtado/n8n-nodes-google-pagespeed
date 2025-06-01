@@ -1,11 +1,12 @@
 const { src, dest, parallel } = require('gulp');
 
 /**
- * Copy icons from icons folder and root to dist folder
+ * Copy icons from icons folder to both dist root and node folder
  */
 function copyIcons() {
 	return src(['icons/*.svg', 'icons/*.png', '*.svg', '*.png'], { allowEmpty: true })
-		.pipe(dest('dist/'));
+		.pipe(dest('dist/'))
+		.pipe(dest('dist/nodes/GooglePageSpeed/'));
 }
 
 /**
