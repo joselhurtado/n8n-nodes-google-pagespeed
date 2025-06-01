@@ -1,8 +1,8 @@
 // helpers/sitemapHelpers.ts - Sitemap processing utilities
 
 import { IExecuteFunctions, IRequestOptions, NodeOperationError } from 'n8n-workflow';
-import { UrlFilters } from '@/nodes/GooglePageSpeed/interfaces';
-import { PAGESPEED_CONFIG } from '@/nodes/GooglePageSpeed/config';
+import { UrlFilters } from '../interfaces';
+import { PAGESPEED_CONFIG } from '../config';
 import { normalizeUrl, isLikelyXmlUrl } from '../utils/urlUtils';
 
 /**

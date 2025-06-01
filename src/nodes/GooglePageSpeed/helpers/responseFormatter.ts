@@ -6,8 +6,8 @@ import {
 	CoreWebVitals, 
 	PageSpeedAudits,
 	AuditResult 
-} from '@/nodes/GooglePageSpeed/interfaces';
-import { PAGESPEED_CONFIG } from '@/nodes/GooglePageSpeed/config';
+} from '../interfaces';
+import { PAGESPEED_CONFIG } from '../config';
 
 /**
  * Extract category scores from PageSpeed API response
