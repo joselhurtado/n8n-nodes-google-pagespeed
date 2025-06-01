@@ -1,30 +1,24 @@
-const { src, dest, parallel, series, task } = require('gulp');
+const { src, dest, parallel } = require('gulp');
 
 /**
- * Copy icons to dist folder
+ * Copy icons from icons folder and root to dist folder
  */
 function copyIcons() {
-	return src(['*.svg', '*.png', '*.jpg', '*.gif'])
+	return src(['icons/*.svg', 'icons/*.png', '*.svg', '*.png'], { allowEmpty: true })
 		.pipe(dest('dist/'));
 }
 
 /**
- * Copy static assets to dist folder
+ * Copy static assets from src to dist folder
  */
 function copyAssets() {
-	return src(['src/**/*.svg', 'src/**/*.png', 'src/**/*.jpg', 'src/**/*.gif'])
+	return src(['src/**/*.svg', 'src/**/*.png'], { allowEmpty: true })
 		.pipe(dest('dist/'));
 }
-
-/**
- * Build icons task
- */
-const buildIcons = parallel(copyIcons, copyAssets);
 
 /**
  * Export tasks
  */
-exports.copyIcons = copyIcons;
-exports.copyAssets = copyAssets;
+const buildIcons = parallel(copyIcons, copyAssets);
 exports['build:icons'] = buildIcons;
 exports.default = buildIcons;
