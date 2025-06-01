@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-google-pagespeed",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "n8n community node for Google PageSpeed Insights API with comprehensive performance, accessibility, and SEO analysis",
   "keywords": [
     "n8n-community-node-package",
