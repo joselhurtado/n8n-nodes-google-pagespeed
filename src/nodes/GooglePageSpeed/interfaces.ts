@@ -1,5 +1,3 @@
-// interfaces.ts - Comprehensive type definitions
-
 import { IDataObject } from 'n8n-workflow';
 
 export interface PageSpeedCredentials {

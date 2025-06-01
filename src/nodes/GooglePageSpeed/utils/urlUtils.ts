@@ -1,8 +1,6 @@
-// utils/urlUtils.ts - Centralized URL handling utilities
-
 import { IExecuteFunctions, IHttpRequestMethods, IRequestOptions } from 'n8n-workflow';
-import { PAGESPEED_CONFIG, ERROR_TYPES, USER_FRIENDLY_ERROR_MESSAGES } from '@/nodes/GooglePageSpeed/config';
-import { ContentValidation } from '@/nodes/GooglePageSpeed/interfaces';
+import { PAGESPEED_CONFIG, ERROR_TYPES, USER_FRIENDLY_ERROR_MESSAGES } from '../config';
+import { ContentValidation } from '../interfaces';
 
 /**
  * Bulletproof URL normalization that guarantees a valid HTTPS URL

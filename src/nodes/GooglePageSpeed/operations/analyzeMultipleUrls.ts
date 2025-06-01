@@ -1,8 +1,6 @@
-// operations/analyzeMultipleUrls.ts - Multiple URLs batch analysis operation
-
 import { IExecuteFunctions, INodeExecutionData, NodeOperationError } from 'n8n-workflow';
-import { AnalysisResult, ApiRequestConfig, AdditionalFields, BatchAnalysisResult } from '@/nodes/GooglePageSpeed/interfaces';
-import { PAGESPEED_CONFIG } from '@/nodes/GooglePageSpeed/config';
+import { AnalysisResult, ApiRequestConfig, AdditionalFields, BatchAnalysisResult } from '../interfaces';
+import { PAGESPEED_CONFIG } from '../config';
 import { batchNormalizeUrls, shortenUrlForDisplay } from '../utils/urlUtils';
 import { batchProcessUrls } from '../utils/apiUtils';
 import { formatResponse, formatBatchResults } from '../helpers/responseFormatter';

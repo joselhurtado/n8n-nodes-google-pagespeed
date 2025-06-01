@@ -1,5 +1,3 @@
-// operations/analyzeSitemap.ts - Sitemap analysis operation
-
 import { IExecuteFunctions, INodeExecutionData, NodeOperationError } from 'n8n-workflow';
 import { UrlFilters, AnalysisResult, ApiRequestConfig, AdditionalFields } from '@/nodes/GooglePageSpeed/interfaces';
 import { PAGESPEED_CONFIG } from '@/nodes/GooglePageSpeed/config';

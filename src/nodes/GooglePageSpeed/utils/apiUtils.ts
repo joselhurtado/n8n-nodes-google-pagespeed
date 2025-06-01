@@ -1,5 +1,3 @@
-// utils/apiUtils.ts - Enhanced API request handling with retry logic
-
 import { IExecuteFunctions, IHttpRequestMethods, IRequestOptions, NodeOperationError } from 'n8n-workflow';
 import { PAGESPEED_CONFIG, ERROR_TYPES, USER_FRIENDLY_ERROR_MESSAGES } from '../config';
 import { PageSpeedApiResponse, ErrorResponse, ApiRequestConfig, AdditionalFields } from '../interfaces';

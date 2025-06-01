@@ -1,5 +1,3 @@
-// config.ts - Configuration constants and settings
-
 export const PAGESPEED_CONFIG = {
 	// API Configuration
 	API_BASE_URL: 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed',

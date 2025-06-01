@@ -1,5 +1,3 @@
-// helpers/responseFormatter.ts - Enhanced response formatting and analysis
-
 import { 
 	PageSpeedApiResponse, 
 	ErrorResponse, 

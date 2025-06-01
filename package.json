@@ -32,7 +32,7 @@
     "pnpm": ">=7"
   },
   "packageManager": "pnpm@8.6.2",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc && gulp build:icons",
     "dev": "tsc --watch",
@@ -71,12 +71,10 @@
     "n8n-workflow": "^1.82.0",
     "prettier": "^2.7.1",
     "ts-jest": "^29.1.0",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.8.3"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
-  },
-  "dependencies": {
-    "n8n-nodes-google-pagespeed": "^1.5.8"
   }
 }

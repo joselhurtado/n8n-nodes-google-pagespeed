@@ -1,5 +1,3 @@
-// operations/analyzeSingleUrl.ts - Single URL analysis operation
-
 import { IExecuteFunctions, INodeExecutionData, NodeOperationError } from 'n8n-workflow';
 import { AnalysisResult, ApiRequestConfig, AdditionalFields } from '../interfaces';
 import { normalizeUrl, extractUrlFromInput } from '../utils/urlUtils';

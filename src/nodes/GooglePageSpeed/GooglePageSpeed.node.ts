@@ -1,5 +1,3 @@
-// GooglePageSpeed.node.ts - Improved modular architecture
-
 import {
 	IExecuteFunctions,
 	INodeExecutionData,

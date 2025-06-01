@@ -1,5 +1,3 @@
-// operations/compareUrls.ts - Compare URL performance operation
-
 import { IExecuteFunctions, INodeExecutionData, NodeOperationError } from 'n8n-workflow';
 import { ComparisonResult, AnalysisResult, PageSpeedScores, CoreWebVitals, ApiRequestConfig } from '../interfaces';
 import { PAGESPEED_CONFIG } from '../config';
@@ -69,17 +67,17 @@ function determineImprovement(
 	scoreDifferences: PageSpeedScores, 
 	metricDifferences: Partial<CoreWebVitals>
 ): boolean {
-	// Score improvements (higher is better) - Fixed: Type the values properly
-	const scoreValues = Object.values(scoreDifferences) as number[];
-	const scoreImprovements = scoreValues.filter(diff => diff > 0).length;
-	const scoreRegressions = scoreValues.filter(diff => diff < 0).length;
+	// Score improvements (higher is better) - Fixed: Safely handle score values
+	const scoreEntries = Object.entries(scoreDifferences) as [keyof PageSpeedScores, number][];
+	const scoreImprovements = scoreEntries.filter(([_, diff]) => diff > 0).length;
+	const scoreRegressions = scoreEntries.filter(([_, diff]) => diff < 0).length;
 	
-	// Metric improvements (lower is better for time-based metrics) - Fixed: Type properly
-	const metricValues = Object.values(metricDifferences).filter((diff): diff is number => 
-		typeof diff === 'number' && diff !== null && diff !== undefined
-	);
-	const metricImprovements = metricValues.filter(diff => diff < 0).length;
-	const metricRegressions = metricValues.filter(diff => diff > 0).length;
+	// Metric improvements (lower is better for time-based metrics) - Fixed: Safely handle metric values
+	const metricEntries = Object.entries(metricDifferences).filter(([_, value]) => 
+		typeof value === 'number' && !isNaN(value)
+	) as [string, number][];
+	const metricImprovements = metricEntries.filter(([_, diff]) => diff < 0).length;
+	const metricRegressions = metricEntries.filter(([_, diff]) => diff > 0).length;
 	
 	// Overall improvement if more improvements than regressions
 	return (scoreImprovements + metricImprovements) > (scoreRegressions + metricRegressions);
@@ -91,8 +89,8 @@ function determineImprovement(
  * @returns True if changes are significant
  */
 function hasSignificantChange(scoreDifferences: PageSpeedScores): boolean {
-	const scoreValues = Object.values(scoreDifferences) as number[];
-	return scoreValues.some(diff => 
+	const scoreEntries = Object.entries(scoreDifferences) as [keyof PageSpeedScores, number][];
+	return scoreEntries.some(([_, diff]) => 
 		Math.abs(diff) >= PAGESPEED_CONFIG.SIGNIFICANT_SCORE_CHANGE
 	);
 }
@@ -317,8 +315,9 @@ function generateChangesSummary(
 ): string[] {
 	const changes: string[] = [];
 
-	// Score changes - Fixed: Properly type the entries
-	(Object.entries(scoreDifferences) as [string, number][]).forEach(([category, diff]) => {
+	// Score changes - Fixed: Properly handle typed entries
+	const scoreEntries = Object.entries(scoreDifferences) as [keyof PageSpeedScores, number][];
+	scoreEntries.forEach(([category, diff]) => {
 		if (Math.abs(diff) >= PAGESPEED_CONFIG.SIGNIFICANT_SCORE_CHANGE) {
 			const direction = diff > 0 ? 'improved' : 'decreased';
 			const categoryName = category.replace(/([A-Z])/g, ' $1').toLowerCase();
