@@ -17,8 +17,16 @@ function copyAssets() {
 }
 
 /**
+ * Copy index.js to dist folder
+ */
+function copyIndex() {
+	return src(['index.js'], { allowEmpty: true })
+		.pipe(dest('dist/'));
+}
+
+/**
  * Export tasks
  */
-const buildIcons = parallel(copyIcons, copyAssets);
+const buildIcons = parallel(copyIcons, copyAssets, copyIndex);
 exports['build:icons'] = buildIcons;
 exports.default = buildIcons;
