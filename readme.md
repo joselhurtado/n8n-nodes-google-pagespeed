@@ -242,8 +242,9 @@ src/
 - **v1.1.0** - Initial release with core Google PageSpeed Insights functionality
 - **v1.2.0** - Minor enhancements and bug fixes
 - **v1.3.0** - Introduced Sitemap Integration for automated website analysis
-- **v1.5.2** - Enhanced URL normalization and validation logic, improved content type validation
-- **v1.5.8** - **Major Architecture Update**: 
+- **v1.5.2** - Enhanced URL normalization and validation logic
+- **v1.5.8** - Enhanced batch processing and error handling
+- **v1.6.0** - **Major Architecture Update**: 
   - Complete modular redesign for better maintainability
   - Enhanced URL comparison and performance tracking features
   - Improved batch processing with better progress tracking
