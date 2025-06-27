@@ -33,6 +33,29 @@ This node offers robust integration with the Google PageSpeed Insights API, allo
 - 🔄 **Advanced Retry Logic** - Exponential backoff with configurable retry attempts
 - 🧹 **Intelligent URL Normalization** - Robust URL cleaning and validation with fallback handling
 
+## ℹ️ Understanding Metrics
+
+### Total Blocking Time (TBT) Behavior
+
+The Total Blocking Time (TBT) metric measures the total amount of time between First Contentful Paint (FCP) and Time to Interactive (TTI) where the main thread was blocked for long enough to prevent input responsiveness.
+
+#### When TBT might be null or zero:
+- **Very fast pages**: Pages that load extremely quickly with minimal JavaScript execution may report TBT as 0ms.
+- **Static content**: Simple static pages with minimal or no JavaScript may not have any blocking time.
+- **Measurement limitations**: In some cases, if the page loads too quickly, the TBT measurement might not be applicable.
+
+#### Interpreting TBT values:
+- **0-200ms**: Excellent (minimal blocking time)
+- **200-600ms**: Needs improvement
+- **600ms+**: Poor (significant blocking time)
+
+#### Troubleshooting null TBT:
+If you're consistently seeing null TBT values when you expect to see a measurement:
+1. Verify the page has enough JavaScript execution to potentially cause blocking
+2. Check if the page is loading too quickly (TBT is only measured between FCP and TTI)
+3. Ensure you're using a recent version of the node
+4. Test with a more complex page that you know has significant JavaScript execution
+
 ## 📦 Installation
 
 ### Option 1: n8n Community Nodes (Recommended)
@@ -238,6 +261,13 @@ src/
 - **Easier Extension**: New features can be added without affecting existing code
 
 ## 📝 Version History
+
+- **v1.7.5** - **TBT Metric Improvements**:
+  - Fixed handling of Total Blocking Time (TBT) metric for very fast or static pages
+  - Enhanced error handling for null/zero TBT values
+  - Added detailed documentation about TBT behavior and interpretation
+  - Improved type safety in metric extraction
+  - Removed test files and sensitive data from repository
 
 - **v1.7.4** - Maintenance release with dependency updates and minor improvements
 - **v1.7.3** - Updated app icon location and fixed file structure

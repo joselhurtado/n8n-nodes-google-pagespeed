@@ -32,16 +32,57 @@ function extractScores(response: PageSpeedApiResponse): PageSpeedScores {
  */
 function extractMetrics(response: PageSpeedApiResponse): CoreWebVitals {
 	const audits = response.lighthouseResult?.audits || {};
-	
-	return {
-		firstContentfulPaint: audits['first-contentful-paint']?.numericValue || null,
-		largestContentfulPaint: audits['largest-contentful-paint']?.numericValue || null,
-		cumulativeLayoutShift: audits['cumulative-layout-shift']?.numericValue || null,
-		speedIndex: audits['speed-index']?.numericValue || null,
-		timeToInteractive: audits['interactive']?.numericValue || null,
-		firstInputDelay: audits['max-potential-fid']?.numericValue || null,
-		totalBlockingTime: audits['total-blocking-time']?.numericValue || null,
+	const metrics: CoreWebVitals = {
+		firstContentfulPaint: null,
+		largestContentfulPaint: null,
+		cumulativeLayoutShift: null,
+		speedIndex: null,
+		timeToInteractive: null,
+		firstInputDelay: null,
+		totalBlockingTime: null,
 	};
+
+	// Helper to safely get numeric value or null
+	const getNumericValue = (auditKey: string): number | null => {
+		const audit = audits[auditKey];
+		if (!audit) {
+			console.log(`Audit not found: ${auditKey}`);
+			return null;
+		}
+		const value = audit.numericValue;
+		// Check if value is a valid number (not null, not undefined, not NaN)
+		return typeof value === 'number' && !isNaN(value) ? value : null;
+	};
+
+	// Extract all metrics
+	metrics.firstContentfulPaint = getNumericValue('first-contentful-paint');
+	metrics.largestContentfulPaint = getNumericValue('largest-contentful-paint');
+	metrics.cumulativeLayoutShift = getNumericValue('cumulative-layout-shift');
+	metrics.speedIndex = getNumericValue('speed-index');
+	metrics.timeToInteractive = getNumericValue('interactive');
+	metrics.firstInputDelay = getNumericValue('max-potential-fid');
+	
+	// Special handling for TBT to ensure we capture 0 values correctly
+	const tbtAudit = audits['total-blocking-time'];
+	if (tbtAudit) {
+		const tbtValue = tbtAudit.numericValue;
+		// Explicitly check for undefined/null (not falsy, which would catch 0)
+		metrics.totalBlockingTime = (typeof tbtValue === 'number' && !isNaN(tbtValue)) ? tbtValue : null;
+		
+		console.log('TBT Audit Details:', {
+			numericValue: tbtAudit.numericValue,
+			displayValue: tbtAudit.displayValue,
+			score: tbtAudit.score,
+			scoreDisplayMode: tbtAudit.scoreDisplayMode,
+			isZero: tbtAudit.numericValue === 0,
+			isNull: tbtAudit.numericValue === null,
+			isUndefined: tbtAudit.numericValue === undefined
+		});
+	} else {
+		console.log('TBT audit not found in response');
+	}
+
+	return metrics;
 }
 
 /**
