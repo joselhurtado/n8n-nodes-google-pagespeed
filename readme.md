@@ -239,14 +239,22 @@ src/
 
 ## 📝 Version History
 
-- **v1.1.0** - Initial release with core Google PageSpeed Insights functionality
-- **v1.2.0** - Minor enhancements and bug fixes
-- **v1.3.0** - Introduced Sitemap Integration for automated website analysis
-- **v1.5.2** - Enhanced URL normalization and validation logic
-- **v1.5.8** - Enhanced batch processing and error handling
-- **v1.6.0** - **Major Architecture Update**: 
+- **v1.7.4** - Maintenance release with dependency updates and minor improvements
+- **v1.7.3** - Updated app icon location and fixed file structure
+- **v1.7.2** - Fixed SVG icon display issues across different platforms
+- **v1.7.1** - Resolved critical import path issues for better compatibility
+- **v1.7.0** - **Stability Release**:
+  - Fixed critical import path issues
+  - Improved error handling and logging
+  - Enhanced documentation and type definitions
+- **v1.6.0** - **Major Architecture Update**:
   - Complete modular redesign for better maintainability
   - Enhanced URL comparison and performance tracking features
+- **v1.5.8** - Enhanced batch processing and error handling
+- **v1.5.2** - Enhanced URL normalization and validation logic
+- **v1.3.0** - Introduced Sitemap Integration for automated website analysis
+- **v1.2.0** - Minor enhancements and bug fixes
+- **v1.1.0** - Initial release with core Google PageSpeed Insights functionality
   - Improved batch processing with better progress tracking
   - Advanced error handling with detailed logging
   - Full TypeScript implementation with strict type checking
